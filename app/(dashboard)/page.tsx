@@ -15,7 +15,7 @@ export default function HomePage() {
                   Быстрый аудит SSR/ботов
                 </span>
               </h1>
-              <p className="mt-3 text-base text-gray-500 sm:mt-5 sm:text-xl lg:text-lg xl:text-xl">
+              <p className="mt-3 text-base text-gray-700 sm:mt-5 sm:text-xl lg:text-lg xl:text-xl">
                 Проверка расхождений между контентом, который видит браузер, и
                 тем, что получают поисковые боты.
               </p>
@@ -36,7 +36,7 @@ export default function HomePage() {
                 <h2 className="text-lg font-semibold text-gray-900">
                   Инструменты
                 </h2>
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-sm text-gray-700">
                   Начни с SSR Check. Дальше добавим новые инструменты в этой
                   витрине.
                 </p>
@@ -46,7 +46,7 @@ export default function HomePage() {
                       <div className="text-sm font-medium text-gray-900">
                         SSR Check
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-700">
                         Сравнение браузер / боты
                       </div>
                     </div>
