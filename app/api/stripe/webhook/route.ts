@@ -1,16 +1,24 @@
 import Stripe from 'stripe';
-import { handleSubscriptionChange, stripe } from '@/lib/payments/stripe';
+import { handleSubscriptionChange, getStripe } from '@/lib/payments/stripe';
 import { NextRequest, NextResponse } from 'next/server';
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 export async function POST(request: NextRequest) {
+  if (!webhookSecret) {
+    return NextResponse.json(
+      { error: 'STRIPE_WEBHOOK_SECRET is not set' },
+      { status: 500 }
+    );
+  }
+
   const payload = await request.text();
   const signature = request.headers.get('stripe-signature') as string;
 
   let event: Stripe.Event;
 
   try {
+    const stripe = getStripe();
     event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
   } catch (err) {
     console.error('Webhook signature verification failed.', err);
