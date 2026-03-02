@@ -3,10 +3,24 @@ import { Check } from 'lucide-react';
 import { getStripePrices, getStripeProducts } from '@/lib/payments/stripe';
 import { SubmitButton } from './submit-button';
 
-// Prices are fresh for one hour max
-export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 
 export default async function PricingPage() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return (
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+          <h1 className="text-2xl font-semibold text-gray-900">
+            Платёжные планы временно недоступны
+          </h1>
+          <p className="mt-3 text-sm text-gray-500">
+            Stripe ещё не настроен. Страница появится после добавления ключей.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   const [prices, products] = await Promise.all([
     getStripePrices(),
     getStripeProducts(),
