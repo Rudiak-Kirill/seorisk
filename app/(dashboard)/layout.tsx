@@ -11,7 +11,13 @@ function Header() {
             SEO Risk Check
           </span>
         </Link>
-        <div className="flex items-center gap-4">
+        <nav className="flex items-center gap-4">
+          <Link
+            href="/"
+            className="text-sm font-medium text-gray-700 hover:text-gray-900"
+          >
+            Главная
+          </Link>
           <Link
             href="/tools/ssr-check"
             className="text-sm font-medium text-gray-700 hover:text-gray-900"
@@ -24,9 +30,19 @@ function Header() {
           >
             Войти
           </Link>
-        </div>
+        </nav>
       </div>
     </header>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="mt-auto border-t border-gray-200">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-sm text-gray-500">
+        © {new Date().getFullYear()} SEO Risk Check
+      </div>
+    </footer>
   );
 }
 
@@ -35,6 +51,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <section className="flex min-h-screen flex-col">
       <Header />
       {children}
+      <Footer />
     </section>
   );
 }
