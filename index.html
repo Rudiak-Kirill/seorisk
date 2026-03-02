@@ -169,9 +169,6 @@
           };
           const diffs = diffSet(data.reasons);
           status.textContent = data.verdict === 'ok' ? 'ОК' : 'Есть расхождения';
-          const verdictText = data.verdict === 'ok'
-            ? 'Все версии совпадают.'
-            : 'Есть расхождения между браузером и ботами.';
           const rawReasons = data.reasons || [];
           const cleanedReasons = rawReasons
             .filter(r => !/http_code=0|access=error/i.test(r))
@@ -188,11 +185,7 @@
               ${renderCard('yandex', checks.yandex, diffs)}
               ${renderCard('google', checks.google, diffs)}
             </div>
-            <div class="verdict">
-              <h3>Итог</h3>
-              <div class="${data.verdict === 'ok' ? 'ok' : 'bad'}">${verdictText}</div>
-              ${reasons ? `<div style="margin-top:8px">${reasons}</div>` : ''}
-            </div>
+            ${reasons ? `<div class="verdict"><div style="margin-top:8px">${reasons}</div></div>` : ''}
           `;
         }
       } catch (e) {
