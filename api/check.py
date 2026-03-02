@@ -181,7 +181,7 @@ def fetch_once(url: str, ua: str) -> dict:
             "anchor_tags_count": 0,
             "filtered_links_count": 0,
             "links_source": "error",
-            "raw_head": "",
+            "raw_tail": "",
             "access_state": "error",
             "access_match": None,
             "error": str(exc),
@@ -215,7 +215,7 @@ def fetch_once(url: str, ua: str) -> dict:
         "anchor_tags_count": anchor_tags_count,
         "filtered_links_count": filtered_links_count,
         "links_source": links_source,
-        "raw_head": raw_html[:4000],
+        "raw_tail": raw_html[-4000:],
         "has_h1": bool(parser.has_h1),
         "has_title": bool(parser.has_title),
         "access_state": access_state,
@@ -281,7 +281,7 @@ def _handle_request(params: dict, headers: dict, include_raw: bool = False) -> d
 
     safe_checks = checks
     if not include_raw:
-        safe_checks = {k: {kk: vv for kk, vv in v.items() if kk != "raw_head"} for k, v in checks.items()}
+        safe_checks = {k: {kk: vv for kk, vv in v.items() if kk != "raw_tail"} for k, v in checks.items()}
 
     return json_response({
         "ok": True,

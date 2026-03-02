@@ -43,7 +43,7 @@ class Handler(BaseHTTPRequestHandler):
             check = _load_check_module()
             resp = check._handle_request(params, headers, include_raw=True)
             payload = json.loads(resp.get("body", "{}"))
-            payload["raw_head"] = {k: v.get("raw_head") for k, v in payload.get("checks", {}).items()}
+            payload["raw_tail"] = {k: v.get("raw_tail") for k, v in payload.get("checks", {}).items()}
             payload["log_tail"] = _read_log_tail()
             body = json.dumps(payload, ensure_ascii=False)
             self.send_response(resp.get("statusCode", 200))
