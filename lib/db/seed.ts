@@ -1,11 +1,17 @@
-import { stripe } from '../payments/stripe';
+import { getStripe } from '../payments/stripe';
 import { db } from './drizzle';
 import { users, teams, teamMembers } from './schema';
 import { hashPassword } from '@/lib/auth/session';
 
 async function createStripeProducts() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    console.log('STRIPE_SECRET_KEY not set, skipping Stripe seed.');
+    return;
+  }
+
   console.log('Creating Stripe products and prices...');
 
+  const stripe = getStripe();
   const baseProduct = await stripe.products.create({
     name: 'Base',
     description: 'Base subscription plan',
