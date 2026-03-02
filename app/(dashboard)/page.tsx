@@ -26,6 +26,9 @@ export default function HomePage() {
                     <ArrowRight className="ml-2 h-5 w-5" />
                   </Link>
                 </Button>
+                <Button asChild size="lg" variant="outline" className="rounded-full">
+                  <Link href="/sign-in">Войти</Link>
+                </Button>
               </div>
             </div>
             <div className="mt-12 sm:max-w-lg sm:mx-auto lg:mt-0 lg:max-w-none lg:mx-0 lg:col-span-5">

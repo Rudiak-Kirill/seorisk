@@ -11,12 +11,20 @@ function Header() {
             SEO Risk Check
           </span>
         </Link>
-        <Link
-          href="/tools/ssr-check"
-          className="text-sm font-medium text-gray-700 hover:text-gray-900"
-        >
-          SSR Check
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/tools/ssr-check"
+            className="text-sm font-medium text-gray-700 hover:text-gray-900"
+          >
+            SSR Check
+          </Link>
+          <Link
+            href="/sign-in"
+            className="text-sm font-medium text-gray-700 hover:text-gray-900"
+          >
+            Войти
+          </Link>
+        </div>
       </div>
     </header>
   );
