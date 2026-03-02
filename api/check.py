@@ -51,7 +51,7 @@ class TextLinkParser(HTMLParser):
             for k, v in attrs:
                 if k == "href" and v:
                     href = v.strip()
-                    if href.startswith(("http", "/", "?")) and not href.startswith(("#", "javascript:", "mailto:", "tel:")):
+                    if href and not href.startswith(("#", "javascript:", "mailto:", "tel:")):
                         self.links.append(href)
 
     def handle_endtag(self, tag):
@@ -164,26 +164,40 @@ def fetch_once(url: str, ua: str) -> dict:
             "size_bytes": 0,
             "text_len": 0,
             "links_count": 0,
+            "anchor_tags_count": 0,
+            "filtered_links_count": 0,
+            "links_source": "error",
             "access_state": "error",
             "access_match": None,
             "error": str(exc),
             "elapsed_ms": int((time.time() - started) * 1000),
         }
 
+    raw_html = body.decode("utf-8", errors="replace")
+    anchor_tags_count = len(re.findall(r"<a\\b", raw_html.lower()))
     parser = TextLinkParser()
     try:
-        parser.feed(body.decode("utf-8", errors="replace"))
+        parser.feed(raw_html)
     except Exception:
         pass
     text = " ".join(parser.text_parts)
     text = re.sub(r"\s+", " ", text).strip()
     access_state, access_match = detect_access_state(text)
+    filtered_links_count = len(parser.links)
+    links_source = None
+    if anchor_tags_count == 0:
+        links_source = "no_anchors_in_raw_html"
+    elif anchor_tags_count > 0 and filtered_links_count == 0:
+        links_source = "filter_or_parser_issue"
 
     return {
         "http_code": code,
         "size_bytes": size,
         "text_len": len(text),
-        "links_count": len(parser.links),
+        "links_count": filtered_links_count,
+        "anchor_tags_count": anchor_tags_count,
+        "filtered_links_count": filtered_links_count,
+        "links_source": links_source,
         "has_h1": bool(parser.has_h1),
         "has_title": bool(parser.has_title),
         "access_state": access_state,
