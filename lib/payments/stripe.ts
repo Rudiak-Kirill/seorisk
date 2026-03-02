@@ -7,9 +7,27 @@ import {
   updateTeamSubscription
 } from '@/lib/db/queries';
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-04-30.basil'
-});
+let stripeClient: Stripe | null = null;
+
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY is not set');
+  }
+  if (!stripeClient) {
+    stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2025-04-30.basil'
+    });
+  }
+  return stripeClient;
+}
+
+function getBaseUrl() {
+  const baseUrl = process.env.BASE_URL;
+  if (!baseUrl) {
+    throw new Error('BASE_URL is not set');
+  }
+  return baseUrl;
+}
 
 export async function createCheckoutSession({
   team,
@@ -24,6 +42,8 @@ export async function createCheckoutSession({
     redirect(`/sign-up?redirect=checkout&priceId=${priceId}`);
   }
 
+  const stripe = getStripe();
+  const baseUrl = getBaseUrl();
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     line_items: [
@@ -33,8 +53,8 @@ export async function createCheckoutSession({
       }
     ],
     mode: 'subscription',
-    success_url: `${process.env.BASE_URL}/api/stripe/checkout?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.BASE_URL}/pricing`,
+    success_url: `${baseUrl}/api/stripe/checkout?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${baseUrl}/pricing`,
     customer: team.stripeCustomerId || undefined,
     client_reference_id: user.id.toString(),
     allow_promotion_codes: true,
@@ -52,6 +72,8 @@ export async function createCustomerPortalSession(team: Team) {
   }
 
   let configuration: Stripe.BillingPortal.Configuration;
+  const stripe = getStripe();
+  const baseUrl = getBaseUrl();
   const configurations = await stripe.billingPortal.configurations.list();
 
   if (configurations.data.length > 0) {
@@ -109,7 +131,7 @@ export async function createCustomerPortalSession(team: Team) {
 
   return stripe.billingPortal.sessions.create({
     customer: team.stripeCustomerId,
-    return_url: `${process.env.BASE_URL}/dashboard`,
+    return_url: `${baseUrl}/dashboard`,
     configuration: configuration.id
   });
 }
@@ -147,6 +169,7 @@ export async function handleSubscriptionChange(
 }
 
 export async function getStripePrices() {
+  const stripe = getStripe();
   const prices = await stripe.prices.list({
     expand: ['data.product'],
     active: true,
@@ -165,6 +188,7 @@ export async function getStripePrices() {
 }
 
 export async function getStripeProducts() {
+  const stripe = getStripe();
   const products = await stripe.products.list({
     active: true,
     expand: ['data.default_price']
