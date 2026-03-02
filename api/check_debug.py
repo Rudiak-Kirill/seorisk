@@ -41,8 +41,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body.encode("utf-8"))
                 return
             check = _load_check_module()
-            resp = check._handle_request(params, headers)
+            resp = check._handle_request(params, headers, include_raw=True)
             payload = json.loads(resp.get("body", "{}"))
+            payload["raw_head"] = {k: v.get("raw_head") for k, v in payload.get("checks", {}).items()}
             payload["log_tail"] = _read_log_tail()
             body = json.dumps(payload, ensure_ascii=False)
             self.send_response(resp.get("statusCode", 200))

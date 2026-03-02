@@ -181,6 +181,7 @@ def fetch_once(url: str, ua: str) -> dict:
             "anchor_tags_count": 0,
             "filtered_links_count": 0,
             "links_source": "error",
+            "raw_head": "",
             "access_state": "error",
             "access_match": None,
             "error": str(exc),
@@ -214,6 +215,7 @@ def fetch_once(url: str, ua: str) -> dict:
         "anchor_tags_count": anchor_tags_count,
         "filtered_links_count": filtered_links_count,
         "links_source": links_source,
+        "raw_head": raw_html[:4000],
         "has_h1": bool(parser.has_h1),
         "has_title": bool(parser.has_title),
         "access_state": access_state,
@@ -223,7 +225,15 @@ def fetch_once(url: str, ua: str) -> dict:
     }
 
 
-def _handle_request(params: dict, headers: dict) -> dict:
+def build_checks(url: str) -> dict:
+    return {
+        "browser": fetch_once(url, BROWSER_UA),
+        "yandex": fetch_once(url, YANDEX_UA),
+        "google": fetch_once(url, GOOGLE_UA),
+    }
+
+
+def _handle_request(params: dict, headers: dict, include_raw: bool = False) -> dict:
     raw_url = params.get("url") or ""
     url = normalize_url(raw_url)
     if not valid_url(url):
@@ -235,11 +245,7 @@ def _handle_request(params: dict, headers: dict) -> dict:
     if not allowed:
         return json_response({"ok": False, "error": reason}, 429)
 
-    checks = {
-        "browser": fetch_once(url, BROWSER_UA),
-        "yandex": fetch_once(url, YANDEX_UA),
-        "google": fetch_once(url, GOOGLE_UA),
-    }
+    checks = build_checks(url)
 
     def ratio_diff(a: int, b: int) -> float:
         denom = max(a, b, 1)
@@ -273,13 +279,17 @@ def _handle_request(params: dict, headers: dict) -> dict:
             f"source={snap.get('links_source')} access={snap.get('access_state')}"
         )
 
+    safe_checks = checks
+    if not include_raw:
+        safe_checks = {k: {kk: vv for kk, vv in v.items() if kk != "raw_head"} for k, v in checks.items()}
+
     return json_response({
         "ok": True,
         "url": url,
         "checked_at": utc_now_iso(),
         "verdict": verdict,
         "reasons": reasons,
-        "checks": checks,
+        "checks": safe_checks,
     })
 
 
