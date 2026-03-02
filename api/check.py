@@ -188,7 +188,7 @@ def fetch_once(url: str, ua: str) -> dict:
         }
 
     raw_html = body.decode("utf-8", errors="replace")
-    anchor_tags_count = len(re.findall(r"<a\\b", raw_html.lower()))
+    anchor_tags_count = len(re.findall(rb"<a\\b", body.lower()))
     parser = TextLinkParser()
     try:
         parser.feed(raw_html)
@@ -199,8 +199,10 @@ def fetch_once(url: str, ua: str) -> dict:
     access_state, access_match = detect_access_state(text)
     filtered_links_count = len(parser.links)
     links_source = None
-    if anchor_tags_count == 0:
+    if anchor_tags_count == 0 and filtered_links_count == 0:
         links_source = "no_anchors_in_raw_html"
+    elif anchor_tags_count == 0 and filtered_links_count > 0:
+        links_source = "parser_found_anchors_no_raw_match"
     elif anchor_tags_count > 0 and filtered_links_count == 0:
         links_source = "filter_or_parser_issue"
 
