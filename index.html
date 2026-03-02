@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SEO Risk Check</title>
+  <style>
+    :root {
+      --bg: #f6f3ef;
+      --ink: #1d1b18;
+      --muted: #6c6256;
+      --accent: #c35b2c;
+      --card: #fff9f2;
+    }
+    body {
+      margin: 0;
+      font-family: "Georgia", "Times New Roman", serif;
+      color: var(--ink);
+      background: radial-gradient(circle at 20% 20%, #fff, var(--bg));
+    }
+    .wrap {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px 60px;
+    }
+    h1 { font-size: 32px; margin: 0 0 12px; }
+    p { margin: 0 0 16px; color: var(--muted); }
+    .card {
+      background: var(--card);
+      border: 1px solid #eadfd2;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+    }
+    .row { display: flex; gap: 12px; }
+    input {
+      flex: 1;
+      padding: 12px 14px;
+      border: 1px solid #cdbca8;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+    button {
+      padding: 12px 16px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    pre {
+      background: #1f1b16;
+      color: #f2e9de;
+      padding: 16px;
+      border-radius: 10px;
+      overflow: auto;
+      font-size: 13px;
+    }
+    .status { margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SEO Risk Check</h1>
+    <p>Разовая проверка URL. Ограничение: 1 URL на IP в сутки.</p>
+    <div class="card">
+      <div class="row">
+        <input id="url" placeholder="https://example.com" />
+        <button id="btn">Проверить</button>
+      </div>
+      <div class="status" id="status"></div>
+      <pre id="output"></pre>
+    </div>
+  </div>
+  <script>
+    const btn = document.getElementById('btn');
+    const out = document.getElementById('output');
+    const status = document.getElementById('status');
+    const fmt = (snap) => ({
+      http: snap.http_code,
+      text_len: snap.text_len,
+      links: snap.links_count,
+      h1: snap.has_h1,
+      title: snap.has_title,
+      access: snap.access_state
+    });
+    btn.addEventListener('click', async () => {
+      const url = document.getElementById('url').value.trim();
+      if (!url) return;
+      btn.disabled = true;
+      status.textContent = 'Проверяем...';
+      out.textContent = '';
+      try {
+        const resp = await fetch(`/api/check.py?url=${encodeURIComponent(url)}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+          status.textContent = data.error || 'Ошибка';
+          out.textContent = JSON.stringify(data, null, 2);
+        } else {
+          const view = {
+            url: data.url,
+            checked_at: data.checked_at,
+            verdict: data.verdict,
+            reasons: data.reasons,
+            checks: {
+              browser: fmt(data.checks.browser),
+              yandex: fmt(data.checks.yandex),
+              google: fmt(data.checks.google)
+            }
+          };
+          status.textContent = data.verdict === 'ok' ? 'ОК' : 'Есть расхождения';
+          out.textContent = JSON.stringify(view, null, 2);
+        }
+      } catch (e) {
+        status.textContent = 'Ошибка сети';
+        out.textContent = String(e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
