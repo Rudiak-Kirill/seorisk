@@ -3,6 +3,8 @@ import re
 import time
 from datetime import datetime, timezone
 from html.parser import HTMLParser
+from http.server import BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -191,30 +193,12 @@ def fetch_once(url: str, ua: str) -> dict:
     }
 
 
-def _extract_params(event) -> dict:
-    if isinstance(event, dict):
-        return event.get("queryStringParameters") or {}
-    if hasattr(event, "query_params"):
-        return dict(event.query_params)
-    return {}
-
-
-def _extract_headers(event) -> dict:
-    if isinstance(event, dict):
-        return event.get("headers") or {}
-    if hasattr(event, "headers"):
-        return dict(event.headers)
-    return {}
-
-
-def handler(event, context=None):
-    params = _extract_params(event)
+def _handle_request(params: dict, headers: dict) -> dict:
     raw_url = params.get("url") or ""
     url = normalize_url(raw_url)
     if not valid_url(url):
         return json_response({"ok": False, "error": "Неверный URL"}, 400)
 
-    headers = _extract_headers(event)
     ip = headers.get("x-forwarded-for", "").split(",")[0].strip() or "unknown"
 
     allowed, reason = check_rate_limit(ip, url)
@@ -260,3 +244,20 @@ def handler(event, context=None):
         "reasons": reasons,
         "checks": checks,
     })
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+        headers = {k.lower(): v for k, v in self.headers.items()}
+        resp = _handle_request(params, headers)
+        body = resp.get("body", "")
+        self.send_response(resp.get("statusCode", 200))
+        for k, v in (resp.get("headers") or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
+    def log_message(self, format, *args):
+        return
