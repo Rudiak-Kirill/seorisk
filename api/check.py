@@ -183,14 +183,30 @@ def fetch_once(url: str, ua: str) -> dict:
     }
 
 
-def handler(event, context):
-    params = event.get("queryStringParameters") or {}
+def _extract_params(event) -> dict:
+    if isinstance(event, dict):
+        return event.get("queryStringParameters") or {}
+    if hasattr(event, "query_params"):
+        return dict(event.query_params)
+    return {}
+
+
+def _extract_headers(event) -> dict:
+    if isinstance(event, dict):
+        return event.get("headers") or {}
+    if hasattr(event, "headers"):
+        return dict(event.headers)
+    return {}
+
+
+def handler(event, context=None):
+    params = _extract_params(event)
     raw_url = params.get("url") or ""
     url = normalize_url(raw_url)
     if not valid_url(url):
         return json_response({"ok": False, "error": "Неверный URL"}, 400)
 
-    headers = event.get("headers") or {}
+    headers = _extract_headers(event)
     ip = headers.get("x-forwarded-for", "").split(",")[0].strip() or "unknown"
 
     allowed, reason = check_rate_limit(ip, url)
