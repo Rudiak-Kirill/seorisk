@@ -206,6 +206,8 @@ def fetch_once(url: str, ua: str) -> dict:
         links_source = "parser_found_anchors_no_raw_match"
     elif anchor_tags_count > 0 and filtered_links_count == 0:
         links_source = "filter_or_parser_issue"
+    if anchor_tags_count == 0:
+        filtered_links_count = 0
 
     return {
         "http_code": code,
