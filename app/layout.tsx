@@ -1,19 +1,30 @@
-import type { Metadata } from "next";
-import "./globals.css";
+import './globals.css';
+import type { Metadata, Viewport } from 'next';
+import { Manrope } from 'next/font/google';
 
 export const metadata: Metadata = {
-  title: "SEO Risk Check",
-  description: "Разовая проверка URL на расхождения контента между браузером и ботами.",
+  title: 'SEO Risk Check',
+  description:
+    'Разовая проверка URL на расхождения контента между браузером и ботами.'
 };
 
+export const viewport: Viewport = {
+  maximumScale: 1
+};
+
+const manrope = Manrope({ subsets: ['latin'] });
+
 export default function RootLayout({
-  children,
-}: Readonly<{
+  children
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="ru">
-      <body className="antialiased">{children}</body>
+    <html
+      lang="en"
+      className={`bg-white dark:bg-gray-950 text-black dark:text-white ${manrope.className}`}
+    >
+      <body className="min-h-[100dvh] bg-gray-50">{children}</body>
     </html>
   );
 }

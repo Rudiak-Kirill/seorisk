@@ -1,13 +1,12 @@
-# SEO Risk Check (Next.js + Python)
+# SEO Risk Check (SaaS Starter)
 
-Витрина на Next.js (App Router + Tailwind) и Python-движок проверки в `api/check.py`.
+Витрина на шаблоне **Next.js SaaS Starter** + Python‑движок проверок в `api/check.py`.
 
-## Как устроено
+## Страницы
 
 - `/` — витрина инструментов.
 - `/tools/ssr-check` — форма проверки URL и карточки результата.
-- `POST /api/ssr-check` — Next route handler, проксирует запросы на `PY_ENGINE_URL`.
-- `api/check.py`, `api/check_debug.py` — Python engine (логика не меняется).
+- `POST /api/ssr-check` — прокси на `PY_ENGINE_URL`.
 
 ## Переменные окружения
 
@@ -31,6 +30,6 @@ npm run dev
 ## Деплой на Vercel
 
 1. Добавь `PY_ENGINE_URL` в Environment Variables проекта.
-2. Задеплой (push в `main`).
+2. Сделай deploy (push в `main`).
 
-Примечание: `api/*.py` остаются Python-функциями Vercel и не зависят от Next.
+Python‑функции остаются в `api/` и не меняются.

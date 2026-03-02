@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 type Snapshot = {
   http_code: number;
@@ -67,13 +69,13 @@ function ResultCard({
 }) {
   const hasDiff = (kind: string) => diffSet.has(`${title}: ${kind}`);
   const rowClass = (kind: string) =>
-    `flex items-center justify-between border-b border-dashed border-[#eee3d7] py-1 text-sm ${
-      hasDiff(kind) ? "text-[#b2271d] font-semibold" : ""
+    `flex items-center justify-between border-b border-dashed border-gray-200 py-1 text-sm ${
+      hasDiff(kind) ? "text-red-600 font-semibold" : "text-gray-700"
     }`;
 
   return (
-    <div className="rounded-lg border border-[#e3d6c7] bg-[#fffefb] p-3">
-      <h3 className="mb-2 text-base font-semibold">{title}</h3>
+    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <h3 className="mb-2 text-base font-semibold text-gray-900">{title}</h3>
       <div className={rowClass("http_code")}>
         <span>{labelMap.http}</span>
         <span>{snap.http}</span>
@@ -94,7 +96,7 @@ function ResultCard({
         <span>{labelMap.title}</span>
         <span>{snap.title}</span>
       </div>
-      <div className="flex items-center justify-between py-1 text-sm">
+      <div className="flex items-center justify-between py-1 text-sm text-gray-700">
         <span>{labelMap.access}</span>
         <span>{snap.access}</span>
       </div>
@@ -141,30 +143,30 @@ export default function SsrCheckPage() {
 
   return (
     <div className="min-h-screen">
-      <main className="mx-auto max-w-4xl px-6 py-16">
-        <h1 className="text-3xl font-semibold">SEO Risk Check</h1>
-        <p className="mt-2 text-[15px] text-[var(--muted)]">
+      <main className="mx-auto max-w-5xl px-4 py-16 sm:px-6 lg:px-8">
+        <h1 className="text-3xl font-semibold text-gray-900">SEO Risk Check</h1>
+        <p className="mt-2 text-sm text-gray-500">
           Разовая проверка URL. Ограничение: 1 URL на IP в сутки.
         </p>
 
-        <div className="mt-6 rounded-xl border border-[#eadfd2] bg-[var(--card)] p-5 shadow-sm">
+        <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-3 md:flex-row">
-            <input
-              className="flex-1 rounded-md border border-[#cdbca8] px-4 py-3 text-sm"
+            <Input
+              className="flex-1"
               placeholder="https://example.com"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
-            <button
-              className="rounded-md bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+            <Button
+              className="rounded-full"
               onClick={onCheck}
               disabled={loading}
             >
               {loading ? "Проверяем..." : "Проверить"}
-            </button>
+            </Button>
           </div>
 
-          <div className="mt-4 text-sm text-[var(--muted)]">
+          <div className="mt-4 text-sm text-gray-600">
             {loading ? "Проверяем..." : status}
           </div>
 
@@ -176,7 +178,7 @@ export default function SsrCheckPage() {
 
           {data && (
             <>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
                 <ResultCard
                   title="browser"
                   snap={formatSnapshot(data.checks.browser)}
@@ -195,8 +197,8 @@ export default function SsrCheckPage() {
               </div>
 
               {reasons.length > 0 && (
-                <div className="mt-4 rounded-lg border border-[#e3d6c7] bg-[#fffefb] p-4">
-                  <div className="space-y-1 text-sm text-[#b2271d]">
+                <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4">
+                  <div className="space-y-1 text-sm text-red-600">
                     {reasons.map((r) => (
                       <div key={r}>• {r}</div>
                     ))}
