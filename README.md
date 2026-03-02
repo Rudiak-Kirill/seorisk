@@ -7,6 +7,7 @@
 - Метрики: `http_code`, `text_len`, `links_count`, `has_h1`, `has_title`
 - Итог: `verdict` = `ok` или `mismatch`, список `reasons`
 - Лимит: 1 URL на IP в сутки (best-effort, in-memory `/tmp`)
+- Исключение из лимита: `zakupki44fz.ru`
 
 ### Структура
 ```
