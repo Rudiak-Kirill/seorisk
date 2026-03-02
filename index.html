@@ -93,7 +93,7 @@
       status.textContent = 'Проверяем...';
       out.textContent = '';
       try {
-        const resp = await fetch(`/api/check?url=${encodeURIComponent(url)}`);
+        const resp = await fetch(`/api/check.py?url=${encodeURIComponent(url)}`);
         const data = await resp.json();
         if (!resp.ok) {
           status.textContent = data.error || 'Ошибка';

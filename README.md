@@ -18,7 +18,7 @@ seorisk/
 ```
 
 ### API
-`GET /api/check?url=...`
+`GET /api/check.py?url=...`
 
 Ответ:
 ```json
