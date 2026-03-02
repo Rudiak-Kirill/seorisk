@@ -172,7 +172,16 @@
           const verdictText = data.verdict === 'ok'
             ? 'Все версии совпадают.'
             : 'Есть расхождения между браузером и ботами.';
-          const reasons = (data.reasons || []).map(r => `<div class="bad">• ${r}</div>`).join('');
+          const rawReasons = data.reasons || [];
+          const cleanedReasons = rawReasons
+            .filter(r => !/http_code=0|access=error/i.test(r))
+            .map(r => r.replace(/^yandex:\s*/i, 'Яндекс: ')
+                       .replace(/^google:\s*/i, 'Google: ')
+                       .replace('text_diff', 'текст отличается')
+                       .replace('links_diff', 'ссылки отличаются')
+                       .replace('h1_diff', 'H1 отличается')
+                       .replace('title_diff', 'Title отличается'));
+          const reasons = cleanedReasons.map(r => `<div class="bad">• ${r}</div>`).join('');
           out.innerHTML = `
             <div class="grid">
               ${renderCard('browser', checks.browser, diffs)}
