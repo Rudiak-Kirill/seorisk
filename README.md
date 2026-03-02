@@ -1,49 +1,36 @@
-## SEO Risk Checker (Lite)
+# SEO Risk Check (Next.js + Python)
 
-Минимальный сервис разовой проверки URL: браузер + Googlebot + YandexBot.
+Витрина на Next.js (App Router + Tailwind) и Python-движок проверки в `api/check.py`.
 
-### Возможности
-- 3 прогона (browser, Googlebot, Yandexbot)
-- Метрики: `http_code`, `text_len`, `links_count`, `has_h1`, `has_title`
-- Итог: `verdict` = `ok` или `mismatch`, список `reasons`
-- Лимит: 1 URL на IP в сутки (best-effort, in-memory `/tmp`)
-- Исключение из лимита: `zakupki44fz.ru`
+## Как устроено
 
-### Структура
+- `/` — витрина инструментов.
+- `/tools/ssr-check` — форма проверки URL и карточки результата.
+- `POST /api/ssr-check` — Next route handler, проксирует запросы на `PY_ENGINE_URL`.
+- `api/check.py`, `api/check_debug.py` — Python engine (логика не меняется).
+
+## Переменные окружения
+
+Создайте `.env.local`:
+
 ```
-seorisk/
-  index.html
-  api/
-    check.py
-```
-
-### API
-`GET /api/check.py?url=...`
-
-Ответ:
-```json
-{
-  "ok": true,
-  "url": "https://example.com",
-  "checked_at": "2026-03-02T10:00:00Z",
-  "verdict": "ok",
-  "reasons": [],
-  "checks": {
-    "browser": {"http_code": 200, "text_len": 1234, "links_count": 10, "has_h1": true, "has_title": true, "access_state": "ok"},
-    "yandex": {"http_code": 200, "text_len": 1200, "links_count": 9, "has_h1": true, "has_title": true, "access_state": "ok"},
-    "google": {"http_code": 200, "text_len": 1210, "links_count": 10, "has_h1": true, "has_title": true, "access_state": "ok"}
-  }
-}
+PY_ENGINE_URL=https://seorisk.vercel.app/api/check.py
 ```
 
-### Запуск локально
-Открой `index.html`, API требует среду Vercel/Python serverless.
+Можно указывать любой URL, который принимает `?url=...` и возвращает JSON.
 
-### Ограничения
-- Лимит IP реализован через `/tmp` и не устойчив к рестартам.
-- Нет JavaScript рендера, только HTTP HTML.
+## Локальный запуск
 
-### Дальше (по желанию)
-- Подключить Vercel KV/Upstash для строгого лимита.
-- Добавить кэш результатов на 24 часа.
-- Добавить простой фронтовый отчёт вместо raw JSON.
+```
+npm install
+npm run dev
+```
+
+Открой `http://localhost:3000`.
+
+## Деплой на Vercel
+
+1. Добавь `PY_ENGINE_URL` в Environment Variables проекта.
+2. Задеплой (push в `main`).
+
+Примечание: `api/*.py` остаются Python-функциями Vercel и не зависят от Next.

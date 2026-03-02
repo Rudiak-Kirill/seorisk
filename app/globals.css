@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f6f3ef;
+  --foreground: #1d1b18;
+  --card: #fff9f2;
+  --accent: #c35b2c;
+  --muted: #6c6256;
+}
+
+body {
+  background: radial-gradient(circle at 20% 20%, #fff, var(--background));
+  color: var(--foreground);
+  font-family: Georgia, "Times New Roman", serif;
+}
