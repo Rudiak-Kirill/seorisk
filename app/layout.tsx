@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { CircleIcon } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'SEO Risk Check',
+  title: 'SEORISK.RU',
   description:
     'Разовая проверка URL на расхождения контента между браузером и ботами.'
 };
@@ -32,7 +32,7 @@ export default function RootLayout({
             <Link href="/" className="flex items-center">
               <CircleIcon className="h-6 w-6 text-orange-500" />
               <span className="ml-2 text-xl font-semibold text-gray-900">
-                SEO Risk Check
+                SEORISK.RU
               </span>
             </Link>
             <nav className="flex items-center gap-4">
@@ -60,7 +60,7 @@ export default function RootLayout({
         {children}
         <footer className="mt-auto border-t border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-sm text-gray-500">
-            © {new Date().getFullYear()} SEO Risk Check
+            © {new Date().getFullYear()} SEORISK.RU
           </div>
         </footer>
       </body>
