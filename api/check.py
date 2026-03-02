@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 
 RATE_PATH = Path('/tmp/seorisk_rate.json')
 RATE_LIMIT_PER_DAY = 1
+RATE_LIMIT_EXEMPT_HOSTS = {"zakupki44fz.ru"}
 MAX_HTML_BYTES = 400_000
 CONNECT_TIMEOUT = 10
 READ_TIMEOUT = 30
@@ -110,6 +111,13 @@ def save_rate_state(state: dict) -> None:
 
 
 def check_rate_limit(ip: str, url: str) -> tuple[bool, str]:
+    try:
+        host = urlparse(url).hostname or ""
+        host = host.lower()
+        if host in RATE_LIMIT_EXEMPT_HOSTS:
+            return True, "exempt"
+    except Exception:
+        pass
     today = datetime.utcnow().strftime("%Y-%m-%d")
     state = load_rate_state()
     day = state.setdefault(today, {})
