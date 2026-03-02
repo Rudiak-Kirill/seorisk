@@ -1,0 +1,47 @@
+import json
+from http.server import BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
+from pathlib import Path
+
+import check
+
+DEBUG_LOG_PATH = Path('/tmp/seorisk_debug.log')
+
+
+def _read_log_tail(limit_lines: int = 200) -> str:
+    if not DEBUG_LOG_PATH.exists():
+        return ""
+    try:
+        lines = DEBUG_LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
+        return "\n".join(lines[-limit_lines:])
+    except Exception:
+        return ""
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+        headers = {k.lower(): v for k, v in self.headers.items()}
+
+        if "url" not in params:
+            payload = {"ok": True, "log_tail": _read_log_tail()}
+            body = json.dumps(payload, ensure_ascii=False)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body.encode("utf-8"))
+            return
+
+        resp = check._handle_request(params, headers)
+        payload = json.loads(resp.get("body", "{}"))
+        payload["log_tail"] = _read_log_tail()
+        body = json.dumps(payload, ensure_ascii=False)
+        self.send_response(resp.get("statusCode", 200))
+        for k, v in (resp.get("headers") or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
+    def log_message(self, format, *args):
+        return

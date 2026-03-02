@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 RATE_PATH = Path('/tmp/seorisk_rate.json')
+DEBUG_LOG_PATH = Path('/tmp/seorisk_debug.log')
 RATE_LIMIT_PER_DAY = 1
 RATE_LIMIT_EXEMPT_HOSTS = {"zakupki44fz.ru"}
 MAX_HTML_BYTES = 400_000
@@ -76,6 +77,19 @@ def json_response(payload: dict, status: int = 200):
         "headers": {"Content-Type": "application/json; charset=utf-8"},
         "body": json.dumps(payload, ensure_ascii=False),
     }
+
+
+def log_debug(line: str) -> None:
+    try:
+        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DEBUG_LOG_PATH.write_text(
+            (DEBUG_LOG_PATH.read_text(encoding="utf-8", errors="replace") + line + "\n")
+            if DEBUG_LOG_PATH.exists()
+            else (line + "\n"),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
 
 
 def normalize_url(raw: str) -> str:
@@ -249,6 +263,13 @@ def _handle_request(params: dict, headers: dict) -> dict:
             reasons.append(f"{bot_label}: title_diff")
 
     verdict = "ok" if not reasons else "mismatch"
+    log_debug(f"{utc_now_iso()} url={url} verdict={verdict} reasons={len(reasons)}")
+    for label, snap in checks.items():
+        log_debug(
+            f"  {label} code={snap.get('http_code')} text={snap.get('text_len')} "
+            f"links={snap.get('links_count')} anchors={snap.get('anchor_tags_count')} "
+            f"source={snap.get('links_source')} access={snap.get('access_state')}"
+        )
 
     return json_response({
         "ok": True,
