@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 RATE_PATH = Path('/tmp/seorisk_rate.json')
 DEBUG_LOG_PATH = Path('/tmp/seorisk_debug.log')
@@ -160,7 +161,7 @@ def detect_access_state(text: str) -> tuple[str, str | None]:
     return "ok", None
 
 
-def fetch_once(url: str, ua: str) -> dict:
+def fetch_once(url: str, ua: str, include_headers: bool = False) -> dict:
     started = time.time()
     req = Request(url, headers={
         "User-Agent": ua,
@@ -169,19 +170,49 @@ def fetch_once(url: str, ua: str) -> dict:
     })
     try:
         with urlopen(req, timeout=CONNECT_TIMEOUT) as resp:
+            ttfb_ms = int((time.time() - started) * 1000)
             body = resp.read(MAX_HTML_BYTES)
             code = resp.getcode() or 0
             size = len(body)
-    except Exception as exc:
+            response_headers = dict(resp.headers.items()) if include_headers else None
+    except HTTPError as exc:
+        ttfb_ms = int((time.time() - started) * 1000)
+        try:
+            body = exc.read(MAX_HTML_BYTES)
+        except Exception:
+            body = b""
+        code = getattr(exc, "code", 0) or 0
+        size = len(body) if body else 0
+        response_headers = dict(exc.headers.items()) if include_headers and exc.headers else None
+    except URLError as exc:
         return {
             "http_code": 0,
             "size_bytes": 0,
+            "ttfb_ms": 0,
             "text_len": 0,
             "links_count": 0,
             "anchor_tags_count": 0,
             "filtered_links_count": 0,
             "links_source": "error",
             "raw_tail": "",
+            "response_headers": None,
+            "access_state": "error",
+            "access_match": None,
+            "error": str(exc),
+            "elapsed_ms": int((time.time() - started) * 1000),
+        }
+    except Exception as exc:
+        return {
+            "http_code": 0,
+            "size_bytes": 0,
+            "ttfb_ms": 0,
+            "text_len": 0,
+            "links_count": 0,
+            "anchor_tags_count": 0,
+            "filtered_links_count": 0,
+            "links_source": "error",
+            "raw_tail": "",
+            "response_headers": None,
             "access_state": "error",
             "access_match": None,
             "error": str(exc),
@@ -212,12 +243,14 @@ def fetch_once(url: str, ua: str) -> dict:
     return {
         "http_code": code,
         "size_bytes": size,
+        "ttfb_ms": ttfb_ms,
         "text_len": len(text),
         "links_count": filtered_links_count,
         "anchor_tags_count": anchor_tags_count,
         "filtered_links_count": filtered_links_count,
         "links_source": links_source,
         "raw_tail": raw_html[-4000:],
+        "response_headers": response_headers,
         "has_h1": bool(parser.has_h1),
         "has_title": bool(parser.has_title),
         "access_state": access_state,
@@ -227,12 +260,12 @@ def fetch_once(url: str, ua: str) -> dict:
     }
 
 
-def build_checks(url: str, browser_ua: str | None = None) -> dict:
+def build_checks(url: str, browser_ua: str | None = None, include_headers: bool = False) -> dict:
     ua_browser = browser_ua or BROWSER_UA
     return {
-        "browser": fetch_once(url, ua_browser),
-        "yandex": fetch_once(url, YANDEX_UA),
-        "google": fetch_once(url, GOOGLE_UA),
+        "browser": fetch_once(url, ua_browser, include_headers),
+        "yandex": fetch_once(url, YANDEX_UA, include_headers),
+        "google": fetch_once(url, GOOGLE_UA, include_headers),
     }
 
 
@@ -253,7 +286,7 @@ def _handle_request(params: dict, headers: dict, include_raw: bool = False) -> d
     if ua and len(ua) > 512:
         ua = ua[:512]
 
-    checks = build_checks(url, ua or None)
+    checks = build_checks(url, ua or None, include_headers=include_raw)
 
     def ratio_diff(a: int, b: int) -> float:
         denom = max(a, b, 1)
@@ -289,7 +322,14 @@ def _handle_request(params: dict, headers: dict, include_raw: bool = False) -> d
 
     safe_checks = checks
     if not include_raw:
-        safe_checks = {k: {kk: vv for kk, vv in v.items() if kk != "raw_tail"} for k, v in checks.items()}
+        safe_checks = {
+            k: {
+                kk: vv
+                for kk, vv in v.items()
+                if kk not in ("raw_tail", "response_headers")
+            }
+            for k, v in checks.items()
+        }
 
     return json_response({
         "ok": True,

@@ -4,7 +4,7 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as { url?: string; ua?: string };
     const url = (body.url || '').trim();
-    const ua = (body.ua || '').trim();
+    const ua = (body.ua || req.headers.get('user-agent') || '').trim();
     if (!url) {
       return NextResponse.json(
         { ok: false, error: 'Неверный URL' },
