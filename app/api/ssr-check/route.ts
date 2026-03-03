@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { url?: string };
+    const body = (await req.json()) as { url?: string; ua?: string };
     const url = (body.url || '').trim();
+    const ua = (body.ua || '').trim();
     if (!url) {
       return NextResponse.json(
         { ok: false, error: 'Неверный URL' },
@@ -19,9 +20,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const target = engineUrl.includes('?')
+    const base = engineUrl.includes('?')
       ? `${engineUrl}&url=${encodeURIComponent(url)}`
       : `${engineUrl}?url=${encodeURIComponent(url)}`;
+    const target = ua ? `${base}&ua=${encodeURIComponent(ua)}` : base;
 
     const upstream = await fetch(target, { method: 'GET' });
     const text = await upstream.text();

@@ -227,9 +227,10 @@ def fetch_once(url: str, ua: str) -> dict:
     }
 
 
-def build_checks(url: str) -> dict:
+def build_checks(url: str, browser_ua: str | None = None) -> dict:
+    ua_browser = browser_ua or BROWSER_UA
     return {
-        "browser": fetch_once(url, BROWSER_UA),
+        "browser": fetch_once(url, ua_browser),
         "yandex": fetch_once(url, YANDEX_UA),
         "google": fetch_once(url, GOOGLE_UA),
     }
@@ -247,7 +248,12 @@ def _handle_request(params: dict, headers: dict, include_raw: bool = False) -> d
     if not allowed:
         return json_response({"ok": False, "error": reason}, 429)
 
-    checks = build_checks(url)
+    raw_ua = params.get("ua") or ""
+    ua = raw_ua.strip()
+    if ua and len(ua) > 512:
+        ua = ua[:512]
+
+    checks = build_checks(url, ua or None)
 
     def ratio_diff(a: int, b: int) -> float:
         denom = max(a, b, 1)

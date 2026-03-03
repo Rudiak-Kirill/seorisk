@@ -106,6 +106,7 @@ function ResultCard({
 
 export default function SsrCheckPage() {
   const [url, setUrl] = useState("");
+  const [useMyUa, setUseMyUa] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CheckResponse | null>(null);
@@ -120,11 +121,12 @@ export default function SsrCheckPage() {
     setLoading(true);
     setError(null);
     setData(null);
+    const ua = useMyUa ? navigator.userAgent : "";
     try {
       const resp = await fetch("/api/ssr-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, ua }),
       });
       const payload = (await resp.json()) as CheckResponse & { error?: string };
       if (!resp.ok || payload.ok === false) {
@@ -165,6 +167,20 @@ export default function SsrCheckPage() {
               {loading ? "Проверяем..." : "Проверить"}
             </Button>
           </div>
+          <label className="mt-3 flex items-center gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={useMyUa}
+              onChange={(e) => setUseMyUa(e.target.checked)}
+            />
+            Использовать User-Agent браузера
+          </label>
+          {useMyUa && (
+            <div className="mt-2 text-xs text-gray-500 break-words">
+              {navigator.userAgent}
+            </div>
+          )}
 
           <div className="mt-4 text-sm text-gray-600">
             {loading ? "Проверяем..." : status}
