@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   title: 'SEORISK.RU',
   description:
     'Разовая проверка URL на расхождения контента между браузером и ботами.'
+  verification: { yandex: 'e034bf48077e0fff' }
 };
 
 export const viewport: Viewport = {
