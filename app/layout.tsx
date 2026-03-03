@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { Manrope } from 'next/font/google';
 import Link from 'next/link';
 import { CircleIcon } from 'lucide-react';
+import { getUser } from '@/lib/db/queries';
 
 export const metadata: Metadata = {
   title: 'SEORISK.RU',
@@ -16,11 +17,15 @@ export const viewport: Viewport = {
 
 const manrope = Manrope({ subsets: ['latin'] });
 
-export default function RootLayout({
+export default async function RootLayout({
   children
 }: {
   children: React.ReactNode;
 }) {
+  const user = await getUser();
+  const authHref = user ? '/dashboard' : '/sign-in';
+  const authLabel = user ? 'Кабинет' : 'Войти';
+
   return (
     <html
       lang="en"
@@ -49,10 +54,10 @@ export default function RootLayout({
                 SSR Check
               </Link>
               <Link
-                href="/sign-in"
+                href={authHref}
                 className="text-sm font-medium text-gray-700 hover:text-gray-900"
               >
-                Войти
+                {authLabel}
               </Link>
             </nav>
           </div>
