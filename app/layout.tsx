@@ -35,6 +35,9 @@ export default async function RootLayout({
       lang="en"
       className={`bg-white dark:bg-gray-950 text-black dark:text-white ${manrope.className}`}
     >
+    <head>
+      <meta name="yandex-verification" content="e034bf48077e0fff" />
+    </head>
       <body className="min-h-[100dvh] bg-gray-50">
         <Script
           id="yandex-metrika"
