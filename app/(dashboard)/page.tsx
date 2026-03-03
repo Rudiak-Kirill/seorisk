@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from 'lucide-react';
+import { getUser } from '@/lib/db/queries';
 
-export default function HomePage() {
+export default async function HomePage() {
+  const user = await getUser();
   return (
     <main>
       <section className="py-20">
@@ -27,7 +29,7 @@ export default function HomePage() {
                   </Link>
                 </Button>
                 <Button asChild size="lg" variant="outline" className="rounded-full">
-                  <Link href="/sign-in">Войти</Link>
+                  <Link href={user ? '/dashboard' : '/sign-in'}>{user ? 'Кабинет' : 'Войти'}</Link>
                 </Button>
               </div>
             </div>
