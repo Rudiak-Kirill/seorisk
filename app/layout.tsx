@@ -3,6 +3,8 @@ import type { Metadata, Viewport } from 'next';
 import { Manrope } from 'next/font/google';
 import Link from 'next/link';
 import { CircleIcon } from 'lucide-react';
+import Script from 'next/script';
+import { MetrikaHit } from '@/components/metrika-hit';
 import { getUser } from '@/lib/db/queries';
 
 export const metadata: Metadata = {
@@ -16,6 +18,7 @@ export const viewport: Viewport = {
 };
 
 const manrope = Manrope({ subsets: ['latin'] });
+const METRIKA_ID = 107086812;
 
 export default async function RootLayout({
   children
@@ -32,6 +35,23 @@ export default async function RootLayout({
       className={`bg-white dark:bg-gray-950 text-black dark:text-white ${manrope.className}`}
     >
       <body className="min-h-[100dvh] bg-gray-50">
+        <Script
+          id="yandex-metrika"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+(function(m,e,t,r,i,k,a){
+  m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+  m[i].l=1*new Date();
+  for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+  k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+})(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=${METRIKA_ID}', 'ym');
+
+ym(${METRIKA_ID}, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+            `,
+          }}
+        />
+        <MetrikaHit metrikaId={METRIKA_ID} />
         <header className="border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
             <Link href="/" className="flex items-center">
@@ -68,6 +88,15 @@ export default async function RootLayout({
             © {new Date().getFullYear()} SEORISK.RU
           </div>
         </footer>
+        <noscript>
+          <div>
+            <img
+              src={`https://mc.yandex.ru/watch/${METRIKA_ID}`}
+              style={{ position: 'absolute', left: '-9999px' }}
+              alt=""
+            />
+          </div>
+        </noscript>
       </body>
     </html>
   );
