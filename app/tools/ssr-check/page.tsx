@@ -233,15 +233,7 @@ export default function SsrCheckPage() {
                 )}
               </div>
 
-              {reasons.length > 0 && (
-                <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4">
-                  <div className="space-y-1 text-sm text-red-600">
-                    {reasons.map((r) => (
-                      <div key={r}>• {r}</div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              
             </>
           )}
         </div>
