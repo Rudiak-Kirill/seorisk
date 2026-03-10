@@ -309,6 +309,184 @@ def _handle_request(params: dict, headers: dict, include_raw: bool = False) -> d
             reasons.append(f"{bot_label}: title_diff")
 
     verdict = "ok" if not reasons else "mismatch"
+
+    # Rule engine v1
+    def empty_like(snap: dict) -> bool:
+        return (snap.get("text_len") or 0) < 50 and (snap.get("links_count") or 0) == 0
+
+    def significant_diff(a: int, b: int, ratio: float = 0.3) -> bool:
+        denom = max(a, b, 1)
+        return abs(a - b) / denom > ratio
+
+    br = checks.get("browser", {})
+    ga = checks.get("google", {})
+    ya = checks.get("yandex", {})
+
+    rules = []
+
+    def add_rule(rule_id: str, severity: str, verdict_label: str, summary: str, recommendation: str):
+        rules.append({
+            "id": rule_id,
+            "severity": severity,
+            "verdict": verdict_label,
+            "summary": summary,
+            "recommendation": recommendation,
+        })
+
+    # A. Access / HTTP
+    if br.get("access_state") != "ok" or (br.get("http_code") or 0) >= 400:
+        add_rule("R002", "critical", "Browser access failed",
+                 "Страница недоступна в обычном браузере.",
+                 "Проверить доступность страницы и цепочку редиректов.")
+    if ga.get("access_state") != "ok" or (ga.get("http_code") or 0) >= 400:
+        add_rule("R003", "critical", "Google bot access failed",
+                 "Googlebot не может получить страницу корректно.",
+                 "Проверить доступ Googlebot на уровне сервера, CDN и robots.")
+    if ya.get("access_state") != "ok" or (ya.get("http_code") or 0) >= 400:
+        add_rule("R004", "critical", "Yandex bot access failed",
+                 "Яндекс-бот не может получить страницу корректно.",
+                 "Проверить доступ YandexBot на уровне сервера и прокси.")
+    if (br.get("http_code") != ga.get("http_code")) or (br.get("http_code") != ya.get("http_code")):
+        add_rule("R005", "critical", "Different HTTP status by user-agent",
+                 "Браузер и боты получают разные HTTP-ответы.",
+                 "Проверить серверную логику по user-agent.")
+
+    # B. Rendering / content availability
+    br_empty = empty_like(br)
+    ga_empty = empty_like(ga)
+    ya_empty = empty_like(ya)
+
+    if br_empty and (not ga_empty or not ya_empty):
+        add_rule("R101", "medium", "Rendering mismatch",
+                 "Браузер получает почти пустую страницу, а боты — полноценный контент.",
+                 "Проверить SSR/prerender и убедиться, что браузерный HTML не пустой.")
+    if not br_empty and (ga_empty or ya_empty):
+        add_rule("R102", "critical", "Critical SEO rendering risk",
+                 "Пользователь видит контент, но поисковый бот получает пустую или урезанную страницу.",
+                 "Срочно проверить indexability, SSR и доступ ботов.")
+    if br_empty and ga_empty and ya_empty:
+        add_rule("R103", "high", "Thin or empty page",
+                 "Все агенты получают почти пустую страницу.",
+                 "Проверить шаблон страницы и источник контента.")
+    if (br.get("text_len") or 0) < 0.3 * max(ga.get("text_len") or 0, ya.get("text_len") or 0, 1):
+        add_rule("R104", "high", "Browser gets reduced content",
+                 "В браузере значительно меньше текста, чем у поисковых ботов.",
+                 "Сравнить исходный HTML и post-render DOM.")
+    if (ga.get("text_len") or 0) < 0.3 * max(br.get("text_len") or 0, 1):
+        add_rule("R105", "critical", "Google receives reduced content",
+                 "Googlebot получает намного меньше контента, чем браузер.",
+                 "Проверить, что основной контент есть в HTML до JS.")
+    if (ya.get("text_len") or 0) < 0.3 * max(br.get("text_len") or 0, 1):
+        add_rule("R106", "critical", "Yandex receives reduced content",
+                 "Яндекс получает намного меньше контента, чем браузер.",
+                 "Проверить рендер и доступ YandexBot.")
+    if significant_diff(ga.get("text_len") or 0, ya.get("text_len") or 0, 0.3):
+        add_rule("R107", "high", "Bot-to-bot content mismatch",
+                 "Google и Яндекс получают разный объем контента.",
+                 "Проверить HTML-ответ по разным user-agent.")
+
+    # C. Title / H1
+    if not br.get("has_title") and not ga.get("has_title") and not ya.get("has_title"):
+        add_rule("R201", "high", "Missing title",
+                 "У страницы отсутствует title.",
+                 "Вернуть title в server-side HTML.")
+    if br.get("has_title") and (not ga.get("has_title") or not ya.get("has_title")):
+        add_rule("R202", "critical", "Bots miss title",
+                 "Браузер видит title, но боты — нет.",
+                 "Генерировать title на сервере.")
+    if not br.get("has_h1") and not ga.get("has_h1") and not ya.get("has_h1"):
+        add_rule("R204", "medium", "Missing H1",
+                 "На странице не найден H1.",
+                 "Добавить основной H1 в HTML.")
+    if not br.get("has_h1") and (ga.get("has_h1") or ya.get("has_h1")):
+        add_rule("R205", "high", "H1 rendering mismatch",
+                 "H1 есть у ботов, но отсутствует в браузере.",
+                 "Проверить, что H1 присутствует в пользовательской версии страницы.")
+    if br.get("has_h1") and (not ga.get("has_h1") or not ya.get("has_h1")):
+        add_rule("R206", "critical", "Bots miss H1",
+                 "Боты не получают основной заголовок страницы.",
+                 "Отдавать H1 в исходном HTML.")
+
+    # D. Links / navigation
+    if (br.get("links_count") or 0) == 0 and ((ga.get("links_count") or 0) > 0 or (ya.get("links_count") or 0) > 0):
+        add_rule("R301", "high", "Link structure mismatch",
+                 "Навигация и ссылки есть у ботов, но не видны в браузере.",
+                 "Проверить рендер меню и основного контента.")
+    if (br.get("links_count") or 0) > 0 and ((ga.get("links_count") or 0) == 0 or (ya.get("links_count") or 0) == 0):
+        add_rule("R302", "critical", "Bots miss internal links",
+                 "Боты не видят ссылки, доступные пользователю.",
+                 "Отдавать ключевые ссылки в HTML без зависимости от JS.")
+    if significant_diff(br.get("links_count") or 0, ga.get("links_count") or 0, 0.5) or significant_diff(br.get("links_count") or 0, ya.get("links_count") or 0, 0.5):
+        add_rule("R303", "medium", "Link count mismatch",
+                 "Количество ссылок заметно различается.",
+                 "Сравнить DOM и проверить основные навигационные блоки.")
+    if significant_diff(ga.get("links_count") or 0, ya.get("links_count") or 0, 0.5):
+        add_rule("R304", "medium", "Bot link mismatch",
+                 "Google и Яндекс видят разное количество ссылок.",
+                 "Проверить шаблон ответа по разным user-agent.")
+
+    # H. Soft 404 / thin content / placeholder
+    if (br.get("http_code") == 200) and (br.get("text_len") or 0) < 30 and (br.get("links_count") or 0) < 2:
+        add_rule("R701", "high", "Soft 404 suspected",
+                 "Страница отвечает 200 OK, но выглядит как пустая/ошибочная.",
+                 "Проверить шаблон и возврат корректного статуса 404/410 при необходимости.")
+    if all((snap.get("text_len") or 0) < 150 for snap in (br, ga, ya)) and not (br_empty and ga_empty and ya_empty):
+        add_rule("R702", "medium", "Thin content",
+                 "Контента на странице мало.",
+                 "Проверить, является ли это нормой для данного типа страницы.")
+    if (br.get("has_title") or ga.get("has_title") or ya.get("has_title")) and all((snap.get("text_len") or 0) < 50 for snap in (br, ga, ya)) and all((snap.get("links_count") or 0) == 0 for snap in (br, ga, ya)):
+        add_rule("R703", "high", "Template without content",
+                 "Похоже, загрузился шаблон без основного содержимого.",
+                 "Проверить данные страницы и загрузку контента.")
+
+    # G. Cloaking / UA targeting
+    if (not br_empty) and ga_empty and ya_empty:
+        add_rule("R601", "critical", "Possible bot blocking",
+                 "Поисковые боты получают существенно меньше контента.",
+                 "Проверить защитные правила и рендеринг для ботов.")
+    if br_empty and (not ga_empty) and (not ya_empty):
+        add_rule("R602", "high", "Possible dynamic rendering / cloaking pattern",
+                 "Версия для ботов отличается от пользовательской.",
+                 "Проверить соответствие Google guidelines и целесообразность схемы.")
+    if significant_diff(br.get("text_len") or 0, ga.get("text_len") or 0, 0.5) and significant_diff(br.get("text_len") or 0, ya.get("text_len") or 0, 0.5) and not significant_diff(ga.get("text_len") or 0, ya.get("text_len") or 0, 0.2):
+        add_rule("R603", "high", "Browser-vs-bot split detected",
+                 "Есть отдельная версия страницы для ботов.",
+                 "Проверить, насколько различия оправданы.")
+    if significant_diff(br.get("text_len") or 0, ga.get("text_len") or 0, 0.5) and not significant_diff(br.get("text_len") or 0, ya.get("text_len") or 0, 0.3):
+        add_rule("R604", "high", "Google-specific mismatch",
+                 "Проблема проявляется именно для Googlebot.",
+                 "Тестировать отдельно под Googlebot.")
+    if significant_diff(br.get("text_len") or 0, ya.get("text_len") or 0, 0.5) and not significant_diff(br.get("text_len") or 0, ga.get("text_len") or 0, 0.3):
+        add_rule("R605", "high", "Yandex-specific mismatch",
+                 "Проблема проявляется именно для YandexBot.",
+                 "Тестировать отдельно под YandexBot.")
+
+    # J. Consistency rules
+    if any(r.get("id") in ("R104", "R301", "R205") for r in rules) and any(r.get("id") in ("R105", "R106", "R302", "R206") for r in rules):
+        add_rule("R901", "critical", "Major rendering mismatch",
+                 "Отличается сразу несколько ключевых SEO-сигналов.",
+                 "Проверить HTML source, DOM after render и response by UA.")
+    if len(rules) == 1:
+        add_rule("R902", "low", "Minor difference detected",
+                 "Найдены незначительные расхождения без явного SEO-риска.",
+                 "Можно наблюдать без срочных действий.")
+    if significant_diff(br.get("text_len") or 0, ya.get("text_len") or 0, 0.4) and not significant_diff(br.get("text_len") or 0, ga.get("text_len") or 0, 0.3):
+        add_rule("R903", "medium", "Yandex-only issue",
+                 "Проблема воспроизводится в Яндексе, но не в Google.",
+                 "Проверить обработку YandexBot отдельно.")
+    if significant_diff(br.get("text_len") or 0, ga.get("text_len") or 0, 0.4) and not significant_diff(br.get("text_len") or 0, ya.get("text_len") or 0, 0.3):
+        add_rule("R904", "medium", "Google-only issue",
+                 "Проблема воспроизводится в Google, но не в Яндексе.",
+                 "Проверить обработку Googlebot отдельно.")
+
+    if not rules:
+        add_rule("R001", "info", "No SEO Risk",
+                 "Браузер и поисковые боты видят страницу одинаково.",
+                 "Ничего критичного не обнаружено.")
+
+    severity_order = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+    top_rule = sorted(rules, key=lambda r: severity_order.get(r["severity"], 0), reverse=True)[0]
+    rule_verdict = "fail" if top_rule["severity"] in ("critical",) else "warn" if top_rule["severity"] in ("high", "medium") else "ok"
     log_debug(f"{utc_now_iso()} url={url} verdict={verdict} reasons={len(reasons)}")
     for label, snap in checks.items():
         log_debug(
@@ -333,6 +511,13 @@ def _handle_request(params: dict, headers: dict, include_raw: bool = False) -> d
         "url": url,
         "checked_at": utc_now_iso(),
         "verdict": verdict,
+        "rule_version": "v1",
+        "rule_verdict": rule_verdict,
+        "rule_severity": top_rule["severity"],
+        "rule_id": top_rule["id"],
+        "rule_summary": top_rule["summary"],
+        "rule_recommendation": top_rule["recommendation"],
+        "matched_rules": rules,
         "reasons": reasons,
         "checks": safe_checks,
     })
