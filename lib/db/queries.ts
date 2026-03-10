@@ -1,6 +1,6 @@
-import { desc, and, eq, isNull } from 'drizzle-orm';
+﻿import { desc, and, eq, isNull } from 'drizzle-orm';
 import { ensureDb } from './drizzle';
-import { activityLogs, teamMembers, teams, users } from './schema';
+import { activityLogs, teamMembers, teams, users, ssrChecks } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
 
@@ -117,4 +117,31 @@ export async function getTeamForUser() {
     .limit(1);
 
   return result.length > 0 ? result[0].team : null;
+}
+
+const ADMIN_EMAIL = 'rudyak.kirill@gmail.com';
+
+export async function getSsrChecksForAdmin(limit = 200) {
+  const user = await getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return null;
+  }
+
+  return await db
+    .select({
+      id: ssrChecks.id,
+      url: ssrChecks.url,
+      verdict: ssrChecks.verdict,
+      reasons: ssrChecks.reasons,
+      createdAt: ssrChecks.createdAt,
+      ipAddress: ssrChecks.ipAddress,
+      userAgent: ssrChecks.userAgent,
+      userEmail: users.email,
+      teamName: teams.name,
+    })
+    .from(ssrChecks)
+    .leftJoin(users, eq(ssrChecks.userId, users.id))
+    .leftJoin(teams, eq(ssrChecks.teamId, teams.id))
+    .orderBy(desc(ssrChecks.createdAt))
+    .limit(limit);
 }
