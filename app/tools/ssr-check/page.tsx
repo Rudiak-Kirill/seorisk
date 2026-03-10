@@ -144,9 +144,9 @@ export default function SsrCheckPage() {
   return (
     <div className="min-h-screen">
       <main className="mx-auto max-w-5xl px-4 py-16 sm:px-6 lg:px-8">
-        <h1 className="text-3xl font-semibold text-gray-900">SEO Risk Check</h1>
+        <h1 className="text-3xl font-semibold text-gray-900">Bot vs Browser SEO Check</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Разовая проверка URL. Ограничение: 1 URL на IP в сутки.
+          Проверьте, как вашу страницу видят Google, Яндекс и браузер.
         </p>
 
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
