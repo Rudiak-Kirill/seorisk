@@ -18,6 +18,18 @@ type CheckResponse = {
   url: string;
   checked_at: string;
   verdict: "ok" | "mismatch";
+  rule_verdict?: "ok" | "warn" | "fail";
+  rule_severity?: string;
+  rule_id?: string;
+  rule_summary?: string;
+  rule_recommendation?: string;
+  matched_rules?: {
+    id: string;
+    severity: string;
+    verdict: string;
+    summary: string;
+    recommendation: string;
+  }[];
   reasons: string[];
   checks: {
     browser: Snapshot;
@@ -140,6 +152,14 @@ export default function SsrCheckPage() {
   };
 
   const status = data?.verdict === "ok" ? "ОК" : data ? "Есть расхождения" : "";
+  const ruleBadge =
+    data?.rule_verdict === "fail"
+      ? "FAIL"
+      : data?.rule_verdict === "warn"
+      ? "WARN"
+      : data?.rule_verdict === "ok"
+      ? "OK"
+      : "";
 
   return (
     <div className="min-h-screen">
@@ -194,6 +214,23 @@ export default function SsrCheckPage() {
                   snap={formatSnapshot(data.checks.google)}
                   diffSet={diffSet}
                 />
+              </div>
+
+              <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                  <span>{ruleBadge}</span>
+                  <span>{data.rule_summary || "Итог проверки"}</span>
+                </div>
+                {data.rule_id && (
+                  <div className="mt-1 text-xs text-gray-500">
+                    Правило: {data.rule_id} • {data.rule_severity}
+                  </div>
+                )}
+                {data.rule_recommendation && (
+                  <div className="mt-2 text-sm text-gray-700">
+                    {data.rule_recommendation}
+                  </div>
+                )}
               </div>
 
               {reasons.length > 0 && (
