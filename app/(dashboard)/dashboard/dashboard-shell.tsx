@@ -75,6 +75,15 @@ export default function DashboardShell({ children, isAdmin }: DashboardShellProp
                     SSR отчёт
                   </Button>
                 </Link>
+                <Link href="/admin/users" passHref>
+                  <Button
+                    variant="ghost"
+                    className="shadow-none w-full justify-start"
+                    onClick={() => setIsSidebarOpen(false)}
+                  >
+                    Пользователи
+                  </Button>
+                </Link>
               </div>
             )}
           </nav>

@@ -145,3 +145,21 @@ export async function getSsrChecksForAdmin(limit = 200) {
     .orderBy(desc(ssrChecks.createdAt))
     .limit(limit);
 }
+
+export async function getUsersForAdmin(limit = 500) {
+  const user = await getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return null;
+  }
+
+  return await db
+    .select({
+      id: users.id,
+      email: users.email,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .where(isNull(users.deletedAt))
+    .orderBy(desc(users.createdAt))
+    .limit(limit);
+}
