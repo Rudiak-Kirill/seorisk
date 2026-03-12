@@ -6,18 +6,11 @@ import { Input } from "@/components/ui/input";
 
 type Snapshot = {
   http_code: number;
-  html_size?: number;
   text_len: number;
   links_count: number;
   has_h1: boolean;
   has_title: boolean;
   access_state?: string | null;
-  canonical?: string | null;
-  meta_robots?: string | null;
-  x_robots_tag?: string | null;
-  indexable?: boolean;
-  structured_data_count?: number;
-  schema_types?: string[];
 };
 
 type CheckResponse = {
@@ -240,31 +233,7 @@ export default function SsrCheckPage() {
                 )}
               </div>
 
-
-              <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4">
-                <div className="text-sm font-semibold text-gray-900">Text difference</div>
-                <div className="mt-2 text-sm text-gray-700">
-                  browser text: {data.checks.browser.text_len} • bot min text: {Math.min(data.checks.google.text_len, data.checks.yandex.text_len)}
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4">
-                <div className="text-sm font-semibold text-gray-900">SEO сигналы</div>
-                <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-gray-700 sm:grid-cols-2">
-                  <div>Canonical (browser): {data.checks.browser.canonical || '-'}</div>
-                  <div>Canonical (google): {data.checks.google.canonical || '-'}</div>
-                  <div>Canonical (yandex): {data.checks.yandex.canonical || '-'}</div>
-                  <div>Meta robots (browser): {data.checks.browser.meta_robots || '-'}</div>
-                  <div>X-Robots (google): {data.checks.google.x_robots_tag || '-'}</div>
-                  <div>X-Robots (yandex): {data.checks.yandex.x_robots_tag || '-'}</div>
-                  <div>Indexable (browser): {String(data.checks.browser.indexable)}</div>
-                  <div>Indexable (google): {String(data.checks.google.indexable)}</div>
-                  <div>Indexable (yandex): {String(data.checks.yandex.indexable)}</div>
-                  <div>Structured data (browser): {data.checks.browser.structured_data_count || 0}</div>
-                  <div>Structured data (google): {data.checks.google.structured_data_count || 0}</div>
-                  <div>Structured data (yandex): {data.checks.yandex.structured_data_count || 0}</div>
-                </div>
-              </div>
+              
             </>
           )}
         </div>
