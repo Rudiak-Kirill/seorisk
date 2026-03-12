@@ -57,27 +57,35 @@ export default function LlmCheckPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LlmResponse | null>(null);
-  const browser = data?.checks.browser;
 
-  const diffSet = useMemo(() => {
-    if (!data || !browser) return new Map<string, Set<string>>();
-    const base = formatSnapshot(browser);
-    const map = new Map<string, Set<string>>();
-    Object.keys(data.checks)
-      .filter((key) => key !== 'browser')
-      .forEach((key) => {
-        const snap = formatSnapshot((data.checks as any)[key]);
-        const diffs = new Set<string>();
-        if (snap.http !== base.http) diffs.add('http_code');
-        if (snap.text_len !== base.text_len) diffs.add('text_len');
-        if (snap.links !== base.links) diffs.add('links_count');
-        if (snap.h1 !== base.h1) diffs.add('has_h1');
-        if (snap.title !== base.title) diffs.add('has_title');
-        if (snap.access !== base.access) diffs.add('access');
-        map.set(key, diffs);
-      });
-    return map;
-  }, [data, browser]);
+  const rows = useMemo(() => {
+    if (!data) return [];
+
+    const result = [
+      { key: 'browser', label: 'Browser', snap: data.checks.browser },
+      ...LLM_OPTIONS.map((opt) => ({
+        key: opt.key,
+        label: opt.label,
+        snap: data.checks[opt.key],
+      })).filter((row) => Boolean(row.snap)),
+    ];
+
+    return result as Array<{ key: string; label: string; snap: Snapshot }>;
+  }, [data]);
+
+  const maxTextLen = useMemo(() => {
+    if (!rows.length) return 0;
+    return rows.reduce((maxValue, row) => Math.max(maxValue, row.snap.text_len), 0);
+  }, [rows]);
+
+  const okClass = 'font-semibold text-green-600';
+  const badClass = 'font-semibold text-red-600';
+  const httpClass = (value: number) => (value === 200 ? okClass : badClass);
+  const textClass = (value: number) => (value < maxTextLen ? badClass : okClass);
+  const linksClass = (value: number) => (value > 0 ? okClass : badClass);
+  const boolClass = (value: boolean) => (value ? okClass : badClass);
+  const accessClass = (value?: string | null) =>
+    (value || 'ok') === 'ok' ? okClass : badClass;
 
   const onCheck = async () => {
     if (!url.trim()) return;
@@ -139,57 +147,56 @@ export default function LlmCheckPage() {
 
           {data && (
             <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-50 text-gray-600">
-                    <tr>
-                      <th className="px-4 py-3 text-left">Агент</th>
-                      <th className="px-4 py-3 text-left">HTTP</th>
-                      <th className="px-4 py-3 text-left">Текст</th>
-                      <th className="px-4 py-3 text-left">Ссылки</th>
-                      <th className="px-4 py-3 text-left">H1</th>
-                      <th className="px-4 py-3 text-left">Title</th>
-                      <th className="px-4 py-3 text-left">Access</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-t border-gray-100 bg-gray-50/50">
-                      <td className="px-4 py-3 font-medium text-gray-900">Browser</td>
-                      <td className="px-4 py-3 text-gray-700">{data.checks.browser.http_code}</td>
-                      <td className="px-4 py-3 text-gray-700">{data.checks.browser.text_len}</td>
-                      <td className="px-4 py-3 text-gray-700">{data.checks.browser.links_count}</td>
-                      <td className="px-4 py-3 text-gray-700">
-                        {data.checks.browser.has_h1 ? 'есть' : 'нет'}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">
-                        {data.checks.browser.has_title ? 'есть' : 'нет'}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">
-                        {data.checks.browser.access_state || 'ok'}
-                      </td>
-                    </tr>
-                    {LLM_OPTIONS.map((opt) => {
-                      const snap = data.checks[opt.key];
-                      if (!snap) return null;
-                      const base = formatSnapshot(data.checks.browser);
-                      const row = formatSnapshot(snap);
-                      const diffs = diffSet.get(opt.key) || new Set();
-                      const cellClass = (key: string) =>
-                        diffs.has(key) ? 'text-red-600 font-semibold' : 'text-gray-700';
-                      return (
-                        <tr key={opt.key} className="border-t border-gray-100">
-                          <td className="px-4 py-3">{opt.label}</td>
-                          <td className="px-4 py-3">{row.http}</td>
-                          <td className="px-4 py-3"><span className={cellClass('text_len')}>{row.text_len}</span></td>
-                          <td className="px-4 py-3"><span className={cellClass('links_count')}>{row.links}</span></td>
-                          <td className="px-4 py-3"><span className={cellClass('has_h1')}>{row.h1}</span></td>
-                          <td className="px-4 py-3"><span className={cellClass('has_title')}>{row.title}</span></td>
-                          <td className="px-4 py-3"><span className={cellClass('access')}>{row.access}</span></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Агент</th>
+                    <th className="px-4 py-3 text-left">HTTP</th>
+                    <th className="px-4 py-3 text-left">Текст</th>
+                    <th className="px-4 py-3 text-left">Ссылки</th>
+                    <th className="px-4 py-3 text-left">H1</th>
+                    <th className="px-4 py-3 text-left">Title</th>
+                    <th className="px-4 py-3 text-left">Access</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, index) => {
+                    const view = formatSnapshot(row.snap);
+
+                    return (
+                      <tr
+                        key={row.key}
+                        className={
+                          index === 0
+                            ? 'border-t border-gray-100 bg-gray-50/50'
+                            : 'border-t border-gray-100'
+                        }
+                      >
+                        <td className="px-4 py-3 font-medium text-gray-900">{row.label}</td>
+                        <td className="px-4 py-3">
+                          <span className={httpClass(row.snap.http_code)}>{view.http}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={textClass(row.snap.text_len)}>{view.text_len}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={linksClass(row.snap.links_count)}>{view.links}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={boolClass(row.snap.has_h1)}>{view.h1}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={boolClass(row.snap.has_title)}>{view.title}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={accessClass(row.snap.access_state)}>{view.access}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </main>
