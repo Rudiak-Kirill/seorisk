@@ -43,15 +43,6 @@ type LlmResponse = {
   error?: string;
 };
 
-const labelMap = {
-  http: 'HTTP',
-  text_len: 'Текст',
-  links: 'Ссылки',
-  h1: 'H1',
-  title: 'Title',
-  access: 'Access',
-} as const;
-
 const formatSnapshot = (snap: Snapshot) => ({
   http: snap.http_code,
   text_len: snap.text_len,
@@ -60,52 +51,6 @@ const formatSnapshot = (snap: Snapshot) => ({
   title: snap.has_title ? 'есть' : 'нет',
   access: snap.access_state || 'ok',
 });
-
-function ResultCard({
-  name,
-  snap,
-  diffSet,
-}: {
-  name: string;
-  snap: ReturnType<typeof formatSnapshot>;
-  diffSet: Set<string>;
-}) {
-  const hasDiff = (kind: string) => diffSet.has(kind);
-  const rowClass = (kind: string) =>
-    `flex items-center justify-between border-b border-dashed border-gray-200 py-1 text-sm ${
-      hasDiff(kind) ? 'text-red-600 font-semibold' : 'text-gray-700'
-    }`;
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="mb-2 text-sm font-semibold text-gray-900">{name}</div>
-      <div className={rowClass('http_code')}>
-        <span>{labelMap.http}</span>
-        <span>{snap.http}</span>
-      </div>
-      <div className={rowClass('text_len')}>
-        <span>{labelMap.text_len}</span>
-        <span>{snap.text_len}</span>
-      </div>
-      <div className={rowClass('links_count')}>
-        <span>{labelMap.links}</span>
-        <span>{snap.links}</span>
-      </div>
-      <div className={rowClass('has_h1')}>
-        <span>{labelMap.h1}</span>
-        <span>{snap.h1}</span>
-      </div>
-      <div className={rowClass('has_title')}>
-        <span>{labelMap.title}</span>
-        <span>{snap.title}</span>
-      </div>
-      <div className="flex items-center justify-between py-1 text-sm text-gray-700">
-        <span>{labelMap.access}</span>
-        <span>{snap.access}</span>
-      </div>
-    </div>
-  );
-}
 
 export default function LlmCheckPage() {
   const [url, setUrl] = useState('');
@@ -193,24 +138,11 @@ export default function LlmCheckPage() {
           )}
 
           {data && (
-            <>
-              <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4">
-                <div className="text-sm font-semibold text-gray-900">Browser</div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-700 sm:grid-cols-3">
-                  <div>HTTP: {data.checks.browser.http_code}</div>
-                  <div>Текст: {data.checks.browser.text_len}</div>
-                  <div>Ссылки: {data.checks.browser.links_count}</div>
-                  <div>H1: {data.checks.browser.has_h1 ? 'есть' : 'нет'}</div>
-                  <div>Title: {data.checks.browser.has_title ? 'есть' : 'нет'}</div>
-                  <div>Access: {data.checks.browser.access_state || 'ok'}</div>
-                </div>
-              </div>
-
-              <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+            <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-gray-600">
                     <tr>
-                      <th className="px-4 py-3 text-left">LLM</th>
+                      <th className="px-4 py-3 text-left">Агент</th>
                       <th className="px-4 py-3 text-left">HTTP</th>
                       <th className="px-4 py-3 text-left">Текст</th>
                       <th className="px-4 py-3 text-left">Ссылки</th>
@@ -220,6 +152,21 @@ export default function LlmCheckPage() {
                     </tr>
                   </thead>
                   <tbody>
+                    <tr className="border-t border-gray-100 bg-gray-50/50">
+                      <td className="px-4 py-3 font-medium text-gray-900">Browser</td>
+                      <td className="px-4 py-3 text-gray-700">{data.checks.browser.http_code}</td>
+                      <td className="px-4 py-3 text-gray-700">{data.checks.browser.text_len}</td>
+                      <td className="px-4 py-3 text-gray-700">{data.checks.browser.links_count}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {data.checks.browser.has_h1 ? 'есть' : 'нет'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {data.checks.browser.has_title ? 'есть' : 'нет'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {data.checks.browser.access_state || 'ok'}
+                      </td>
+                    </tr>
                     {LLM_OPTIONS.map((opt) => {
                       const snap = data.checks[opt.key];
                       if (!snap) return null;
@@ -243,7 +190,6 @@ export default function LlmCheckPage() {
                   </tbody>
                 </table>
               </div>
-            </>
           )}
         </div>
       </main>
