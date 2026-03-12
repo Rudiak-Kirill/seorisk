@@ -39,8 +39,13 @@ class TextLinkParser(HTMLParser):
         self.links = []
         self.has_h1 = False
         self.has_title = False
+        self.canonical = None
+        self.meta_robots = None
+        self.structured_data = []
         self._in_script = False
         self._in_style = False
+        self._in_json_ld = False
+        self._json_ld_parts = []
 
     def handle_starttag(self, tag, attrs):
         if tag in ("script", "style"):
@@ -49,6 +54,19 @@ class TextLinkParser(HTMLParser):
             self.has_h1 = True
         if tag == "title":
             self.has_title = True
+        if tag == "link":
+            attr_map = {k.lower(): (v or "") for k, v in attrs}
+            if attr_map.get("rel", "").lower() == "canonical" and attr_map.get("href"):
+                self.canonical = attr_map.get("href")
+        if tag == "meta":
+            attr_map = {k.lower(): (v or "") for k, v in attrs}
+            if attr_map.get("name", "").lower() == "robots" and attr_map.get("content"):
+                self.meta_robots = attr_map.get("content")
+        if tag == "script":
+            attr_map = {k.lower(): (v or "") for k, v in attrs}
+            if attr_map.get("type", "").lower() in ("application/ld+json", "application/json+ld"):
+                self._in_json_ld = True
+                self._json_ld_parts = []
         if tag == "a":
             for k, v in attrs:
                 if k == "href" and v:
@@ -60,9 +78,18 @@ class TextLinkParser(HTMLParser):
         if tag in ("script", "style"):
             self._in_script = False
             self._in_style = False
+        if tag == "script" and self._in_json_ld:
+            self._in_json_ld = False
+            raw = "".join(self._json_ld_parts).strip()
+            if raw:
+                self.structured_data.append(raw)
+            self._json_ld_parts = []
 
     def handle_data(self, data):
         if self._in_script or self._in_style:
+            return
+        if self._in_json_ld:
+            self._json_ld_parts.append(data)
             return
         if data and data.strip():
             self.text_parts.append(data.strip())
@@ -161,6 +188,40 @@ def detect_access_state(text: str) -> tuple[str, str | None]:
     return "ok", None
 
 
+def _extract_x_robots(headers: dict | None) -> str | None:
+    if not headers:
+        return None
+    for k, v in headers.items():
+        if k.lower() == "x-robots-tag":
+            return v
+    return None
+
+
+def _is_indexable(meta_robots: str | None, x_robots: str | None) -> bool:
+    combined = " ".join([meta_robots or "", x_robots or ""]).lower()
+    return "noindex" not in combined
+
+
+def _detect_schema_types(payloads: list[str]) -> list[str]:
+    types = set()
+    for raw in payloads:
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if isinstance(item, dict):
+                t = item.get("@type")
+                if isinstance(t, list):
+                    for val in t:
+                        if isinstance(val, str):
+                            types.add(val)
+                elif isinstance(t, str):
+                    types.add(t)
+    return sorted(types)
+
+
 def fetch_once(url: str, ua: str, include_headers: bool = False) -> dict:
     started = time.time()
     req = Request(url, headers={
@@ -229,6 +290,9 @@ def fetch_once(url: str, ua: str, include_headers: bool = False) -> dict:
     text = " ".join(parser.text_parts)
     text = re.sub(r"\s+", " ", text).strip()
     access_state, access_match = detect_access_state(text)
+    x_robots = _extract_x_robots(response_headers if include_headers else {})
+    indexable = _is_indexable(parser.meta_robots, x_robots)
+    schema_types = _detect_schema_types(parser.structured_data)
     filtered_links_count = len(parser.links)
     links_source = None
     if anchor_tags_count == 0 and filtered_links_count == 0:
@@ -240,6 +304,7 @@ def fetch_once(url: str, ua: str, include_headers: bool = False) -> dict:
     return {
         "http_code": code,
         "size_bytes": size,
+        "html_size": size,
         "ttfb_ms": ttfb_ms,
         "text_len": len(text),
         "links_count": filtered_links_count,
@@ -248,6 +313,12 @@ def fetch_once(url: str, ua: str, include_headers: bool = False) -> dict:
         "links_source": links_source,
         "raw_tail": raw_html[-4000:],
         "response_headers": response_headers,
+        "canonical": parser.canonical,
+        "meta_robots": parser.meta_robots,
+        "x_robots_tag": x_robots,
+        "indexable": indexable,
+        "structured_data_count": len(parser.structured_data),
+        "schema_types": schema_types,
         "has_h1": bool(parser.has_h1),
         "has_title": bool(parser.has_title),
         "access_state": access_state,
