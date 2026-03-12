@@ -91,7 +91,7 @@ function DetailRow({
   return (
     <div className="flex flex-col gap-1 border-b border-dashed border-gray-200 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
       <div className="min-w-0 text-sm text-gray-500">{label}</div>
-      <div className="min-w-0 text-sm text-gray-900 sm:max-w-[65%] sm:text-right">
+      <div className="min-w-0 break-words text-sm text-gray-900 sm:max-w-[65%] sm:text-right [&_*]:break-all">
         {value}
       </div>
     </div>
@@ -123,6 +123,7 @@ export default function IndexCheckPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<IndexCheckResponse | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
 
   const onCheck = async () => {
     if (!url.trim()) return;
@@ -130,6 +131,7 @@ export default function IndexCheckPage() {
     setLoading(true);
     setError(null);
     setData(null);
+    setShowDetails(false);
 
     try {
       const response = await fetch('/api/index-check', {
@@ -247,7 +249,9 @@ export default function IndexCheckPage() {
                   >
                     {boolLabel(data.robots_allowed_for_page, 'Разрешена', 'Запрещена')}
                   </div>
-                  <div className="mt-2 text-sm text-gray-600">{summary.robots}</div>
+                  <div className="mt-2 break-words text-sm text-gray-600">
+                    {summary.robots}
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -261,95 +265,108 @@ export default function IndexCheckPage() {
                 </div>
               </div>
 
-              <div className="mt-6 grid gap-6 lg:grid-cols-3">
-                <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold text-gray-900">Страница</h2>
-                  <div className="mt-3">
-                    <DetailRow label="Input URL" value={data.input_url} />
-                    <DetailRow label="Final URL" value={data.final_url} />
-                    <DetailRow label="HTTP status" value={data.status_code || '-'} />
-                    <DetailRow
-                      label="Redirect chain"
-                      value={
-                        data.redirect_chain.length ? (
-                          <div className="space-y-1">
-                            {data.redirect_chain.map((step, index) => (
-                              <div key={`${step.from_url}-${index}`} className="break-all">
-                                {step.status_code}: {step.from_url} → {step.to_url}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          'Нет'
-                        )
-                      }
-                    />
-                    <DetailRow label="Meta robots" value={data.meta_robots || 'Не найден'} />
-                    <DetailRow
-                      label="X-Robots-Tag"
-                      value={data.x_robots_tag || 'Не найден'}
-                    />
-                    <DetailRow label="Canonical" value={data.canonical_url || 'Не найден'} />
-                    <DetailRow
-                      label="Canonical self"
-                      value={boolLabel(data.canonical_self, 'Да', 'Нет')}
-                    />
-                  </div>
-                </section>
-
-                <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold text-gray-900">Robots.txt</h2>
-                  <div className="mt-3">
-                    <DetailRow label="Robots URL" value={data.robots_url} />
-                    <DetailRow
-                      label="Robots found"
-                      value={boolLabel(data.robots_found, 'Да', 'Нет')}
-                    />
-                    <DetailRow label="Robots status" value={data.robots_status_code || '-'} />
-                    <DetailRow
-                      label="Rules found"
-                      value={boolLabel(data.robots_rules_found, 'Да', 'Нет')}
-                    />
-                    <DetailRow
-                      label="Allowed for page"
-                      value={boolLabel(data.robots_allowed_for_page, 'Да', 'Нет')}
-                    />
-                    <DetailRow
-                      label="Matched rule"
-                      value={data.robots_matched_rule || 'Не найдено'}
-                    />
-                    <DetailRow
-                      label="Matched user-agent"
-                      value={data.robots_matched_user_agent || 'Не найдено'}
-                    />
-                  </div>
-                </section>
-
-                <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold text-gray-900">Sitemap</h2>
-                  <div className="mt-3">
-                    <DetailRow
-                      label="Sitemap found"
-                      value={boolLabel(data.sitemap_found, 'Да', 'Нет')}
-                    />
-                    <DetailRow label="Source" value={data.sitemap_source || 'Не найден'} />
-                    <DetailRow label="Sitemap URL" value={data.sitemap_url || 'Не найден'} />
-                    <DetailRow
-                      label="Sitemap status"
-                      value={data.sitemap_status_code || '-'}
-                    />
-                    <DetailRow
-                      label="Sitemap type"
-                      value={data.sitemap_type || 'Неизвестно'}
-                    />
-                    <DetailRow label="URL count" value={data.sitemap_urls_count || 0} />
-                    <DetailRow
-                      label="Page in sitemap"
-                      value={boolLabel(data.page_in_sitemap, 'Да', 'Нет')}
-                    />
-                  </div>
-                </section>
+              <div className="mt-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => setShowDetails((prev) => !prev)}
+                >
+                  {showDetails ? 'Скрыть детали' : 'Показать детали'}
+                </Button>
               </div>
+
+              {showDetails && (
+                <div className="mt-6 grid gap-6 lg:grid-cols-3">
+                  <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                    <h2 className="text-lg font-semibold text-gray-900">Страница</h2>
+                    <div className="mt-3">
+                      <DetailRow label="Input URL" value={data.input_url} />
+                      <DetailRow label="Final URL" value={data.final_url} />
+                      <DetailRow label="HTTP status" value={data.status_code || '-'} />
+                      <DetailRow
+                        label="Redirect chain"
+                        value={
+                          data.redirect_chain.length ? (
+                            <div className="space-y-1">
+                              {data.redirect_chain.map((step, index) => (
+                                <div key={`${step.from_url}-${index}`}>
+                                  {step.status_code}: {step.from_url} → {step.to_url}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            'Нет'
+                          )
+                        }
+                      />
+                      <DetailRow label="Meta robots" value={data.meta_robots || 'Не найден'} />
+                      <DetailRow
+                        label="X-Robots-Tag"
+                        value={data.x_robots_tag || 'Не найден'}
+                      />
+                      <DetailRow label="Canonical" value={data.canonical_url || 'Не найден'} />
+                      <DetailRow
+                        label="Canonical self"
+                        value={boolLabel(data.canonical_self, 'Да', 'Нет')}
+                      />
+                    </div>
+                  </section>
+
+                  <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                    <h2 className="text-lg font-semibold text-gray-900">Robots.txt</h2>
+                    <div className="mt-3">
+                      <DetailRow label="Robots URL" value={data.robots_url} />
+                      <DetailRow
+                        label="Robots found"
+                        value={boolLabel(data.robots_found, 'Да', 'Нет')}
+                      />
+                      <DetailRow label="Robots status" value={data.robots_status_code || '-'} />
+                      <DetailRow
+                        label="Rules found"
+                        value={boolLabel(data.robots_rules_found, 'Да', 'Нет')}
+                      />
+                      <DetailRow
+                        label="Allowed for page"
+                        value={boolLabel(data.robots_allowed_for_page, 'Да', 'Нет')}
+                      />
+                      <DetailRow
+                        label="Matched rule"
+                        value={data.robots_matched_rule || 'Не найдено'}
+                      />
+                      <DetailRow
+                        label="Matched user-agent"
+                        value={data.robots_matched_user_agent || 'Не найдено'}
+                      />
+                    </div>
+                  </section>
+
+                  <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                    <h2 className="text-lg font-semibold text-gray-900">Sitemap</h2>
+                    <div className="mt-3">
+                      <DetailRow
+                        label="Sitemap found"
+                        value={boolLabel(data.sitemap_found, 'Да', 'Нет')}
+                      />
+                      <DetailRow label="Source" value={data.sitemap_source || 'Не найден'} />
+                      <DetailRow label="Sitemap URL" value={data.sitemap_url || 'Не найден'} />
+                      <DetailRow
+                        label="Sitemap status"
+                        value={data.sitemap_status_code || '-'}
+                      />
+                      <DetailRow
+                        label="Sitemap type"
+                        value={data.sitemap_type || 'Неизвестно'}
+                      />
+                      <DetailRow label="URL count" value={data.sitemap_urls_count || 0} />
+                      <DetailRow
+                        label="Page in sitemap"
+                        value={boolLabel(data.page_in_sitemap, 'Да', 'Нет')}
+                      />
+                    </div>
+                  </section>
+                </div>
+              )}
             </>
           )}
         </div>
