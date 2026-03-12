@@ -243,17 +243,10 @@ def _handle_request(params: dict) -> dict:
     if not valid_url(url):
         return json_response({"ok": False, "error": "Неверный URL"}, 400)
 
-    a1 = params.get("a1") or "gptbot"
-    a2 = params.get("a2") or "claudebot"
-    a3 = params.get("a3") or "perplexitybot"
-
-    agents = [_resolve_agent(a1), _resolve_agent(a2), _resolve_agent(a3)]
-
     browser = fetch_once(url, BROWSER_UA)
     checks = {"browser": browser}
     meta = {}
-    for idx, agent in enumerate(agents, start=1):
-        key = f"llm{idx}"
+    for key, agent in LLM_UA_MAP.items():
         checks[key] = fetch_once(url, agent["ua"])
         meta[key] = agent
 
@@ -266,7 +259,7 @@ def _handle_request(params: dict) -> dict:
     })
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(BaseHTTPRequestHandler):class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         params = {k: v[0] for k, v in parse_qs(parsed.query).items()}

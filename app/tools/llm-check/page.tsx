@@ -35,14 +35,10 @@ type LlmResponse = {
   checked_at: string;
   checks: {
     browser: Snapshot;
-    llm1: Snapshot;
-    llm2: Snapshot;
-    llm3: Snapshot;
+    [key: string]: Snapshot;
   };
   agents: {
-    llm1: { key: string; label: string; ua: string };
-    llm2: { key: string; label: string; ua: string };
-    llm3: { key: string; label: string; ua: string };
+    [key: string]: { key: string; label: string; ua: string };
   };
   error?: string;
 };
@@ -66,15 +62,13 @@ const formatSnapshot = (snap: Snapshot) => ({
 });
 
 function ResultCard({
+  name,
   snap,
   diffSet,
-  agentKey,
-  onChange,
 }: {
+  name: string;
   snap: ReturnType<typeof formatSnapshot>;
   diffSet: Set<string>;
-  agentKey: string;
-  onChange: (next: string) => void;
 }) {
   const hasDiff = (kind: string) => diffSet.has(kind);
   const rowClass = (kind: string) =>
@@ -84,19 +78,7 @@ function ResultCard({
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="mb-3">
-        <select
-          value={agentKey}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
-        >
-          {LLM_OPTIONS.map((opt) => (
-            <option key={opt.key} value={opt.key}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <div className="mb-2 text-sm font-semibold text-gray-900">{name}</div>
       <div className={rowClass('http_code')}>
         <span>{labelMap.http}</span>
         <span>{snap.http}</span>
@@ -130,27 +112,25 @@ export default function LlmCheckPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LlmResponse | null>(null);
-  const [a1, setA1] = useState('gptbot');
-  const [a2, setA2] = useState('claudebot');
-  const [a3, setA3] = useState('perplexitybot');
-
   const browser = data?.checks.browser;
 
   const diffSet = useMemo(() => {
     if (!data || !browser) return new Map<string, Set<string>>();
     const base = formatSnapshot(browser);
     const map = new Map<string, Set<string>>();
-    ['llm1', 'llm2', 'llm3'].forEach((key) => {
-      const snap = formatSnapshot((data.checks as any)[key]);
-      const diffs = new Set<string>();
-      if (snap.http !== base.http) diffs.add('http_code');
-      if (snap.text_len !== base.text_len) diffs.add('text_len');
-      if (snap.links !== base.links) diffs.add('links_count');
-      if (snap.h1 !== base.h1) diffs.add('has_h1');
-      if (snap.title !== base.title) diffs.add('has_title');
-      if (snap.access !== base.access) diffs.add('access');
-      map.set(key, diffs);
-    });
+    Object.keys(data.checks)
+      .filter((key) => key !== 'browser')
+      .forEach((key) => {
+        const snap = formatSnapshot((data.checks as any)[key]);
+        const diffs = new Set<string>();
+        if (snap.http !== base.http) diffs.add('http_code');
+        if (snap.text_len !== base.text_len) diffs.add('text_len');
+        if (snap.links !== base.links) diffs.add('links_count');
+        if (snap.h1 !== base.h1) diffs.add('has_h1');
+        if (snap.title !== base.title) diffs.add('has_title');
+        if (snap.access !== base.access) diffs.add('access');
+        map.set(key, diffs);
+      });
     return map;
   }, [data, browser]);
 
@@ -163,7 +143,7 @@ export default function LlmCheckPage() {
       const resp = await fetch('/api/llm-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, a1, a2, a3 }),
+        body: JSON.stringify({ url }),
       });
       const payload = (await resp.json()) as LlmResponse & { error?: string };
       if (!resp.ok || payload.ok === false) {
@@ -219,25 +199,42 @@ export default function LlmCheckPage() {
                 </div>
               </div>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-3">
-                <ResultCard
-                  snap={formatSnapshot(data.checks.llm1)}
-                  diffSet={diffSet.get('llm1') || new Set()}
-                  agentKey={a1}
-                  onChange={setA1}
-                />
-                <ResultCard
-                  snap={formatSnapshot(data.checks.llm2)}
-                  diffSet={diffSet.get('llm2') || new Set()}
-                  agentKey={a2}
-                  onChange={setA2}
-                />
-                <ResultCard
-                  snap={formatSnapshot(data.checks.llm3)}
-                  diffSet={diffSet.get('llm3') || new Set()}
-                  agentKey={a3}
-                  onChange={setA3}
-                />
+              <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-4 py-3 text-left">LLM</th>
+                      <th className="px-4 py-3 text-left">HTTP</th>
+                      <th className="px-4 py-3 text-left">Текст</th>
+                      <th className="px-4 py-3 text-left">Ссылки</th>
+                      <th className="px-4 py-3 text-left">H1</th>
+                      <th className="px-4 py-3 text-left">Title</th>
+                      <th className="px-4 py-3 text-left">Access</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {LLM_OPTIONS.map((opt) => {
+                      const snap = data.checks[opt.key];
+                      if (!snap) return null;
+                      const base = formatSnapshot(data.checks.browser);
+                      const row = formatSnapshot(snap);
+                      const diffs = diffSet.get(opt.key) || new Set();
+                      const cellClass = (key: string) =>
+                        diffs.has(key) ? 'text-red-600 font-semibold' : 'text-gray-700';
+                      return (
+                        <tr key={opt.key} className="border-t border-gray-100">
+                          <td className="px-4 py-3">{opt.label}</td>
+                          <td className="px-4 py-3">{row.http}</td>
+                          <td className="px-4 py-3"><span className={cellClass('text_len')}>{row.text_len}</span></td>
+                          <td className="px-4 py-3"><span className={cellClass('links_count')}>{row.links}</span></td>
+                          <td className="px-4 py-3"><span className={cellClass('has_h1')}>{row.h1}</span></td>
+                          <td className="px-4 py-3"><span className={cellClass('has_title')}>{row.title}</span></td>
+                          <td className="px-4 py-3"><span className={cellClass('access')}>{row.access}</span></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </>
           )}
