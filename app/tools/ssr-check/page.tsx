@@ -21,25 +21,14 @@ type Snapshot = {
   access_state?: string | null;
 };
 
-type MatchedRule = {
-  id: string;
-  severity: string;
-  verdict: string;
-  summary: string;
-  recommendation: string;
-};
-
 type CheckResponse = {
   ok: boolean;
   url: string;
   checked_at: string;
   verdict: 'ok' | 'mismatch';
   rule_verdict?: 'ok' | 'warn' | 'fail';
-  rule_severity?: string;
-  rule_id?: string;
   rule_summary?: string;
   rule_recommendation?: string;
-  matched_rules?: MatchedRule[];
   reasons: string[];
   checks: {
     browser: Snapshot;
@@ -47,6 +36,17 @@ type CheckResponse = {
     google: Snapshot;
   };
   error?: string;
+};
+
+type SeverityFilter = 'all' | 'critical' | 'important';
+
+type AgentProblemCard = {
+  key: string;
+  label: string;
+  severity: Exclude<SeverityFilter, 'all'>;
+  title: string;
+  facts: string[];
+  recommendation: string;
 };
 
 const SSR_FAQ: FaqItem[] = [
@@ -73,7 +73,7 @@ const SSR_FAQ: FaqItem[] = [
   {
     question: 'Какой результат даёт SSR Check?',
     answer:
-      'Инструмент позволяет быстро понять, есть ли расхождение между браузером и ботами, и сразу увидеть первичную причину: ошибка сервера, пустой контент, отсутствие title или проблемы с доступом.',
+      'Позволяет быстро понять, есть ли расхождение между браузером и ботами, и сразу увидеть первичную причину: ошибка сервера, пустой контент, отсутствие title или проблемы с доступом.',
   },
   {
     question: 'Какие вопросы помогает ответить SSR Check?',
@@ -83,7 +83,7 @@ const SSR_FAQ: FaqItem[] = [
   {
     question: 'Что не делает SSR Check?',
     answer:
-      'Инструмент не эмулирует поисковые системы на 100% как их реальная инфраструктура. Это быстрая проверка ответа страницы по разным User-Agent, которая помогает поймать очевидные и практические проблемы.',
+      'Не эмулирует поисковые системы на 100% как их реальная инфраструктура. Это быстрая проверка ответа страницы по разным User-Agent, которая помогает поймать очевидные и практические проблемы.',
   },
 ];
 
@@ -104,41 +104,113 @@ function normalizeAccess(value?: string | null) {
   return value || 'ok';
 }
 
-function getVisibleRules(rules: MatchedRule[] | undefined) {
-  return (rules || [])
-    .filter((rule) => !['R001', 'R902'].includes(rule.id))
-    .filter(
-      (rule, index, list) =>
-        list.findIndex(
-          (candidate) =>
-            candidate.summary === rule.summary &&
-            candidate.recommendation === rule.recommendation,
-        ) === index,
-    )
-    .sort((left, right) => {
-      const order: Record<string, number> = {
-        critical: 3,
-        high: 2,
-        medium: 2,
-        low: 1,
-        info: 0,
-      };
-
-      return (order[right.severity] || 0) - (order[left.severity] || 0);
-    });
+function isCriticalAccessIssue(snapshot: Snapshot) {
+  return snapshot.http_code >= 400 || snapshot.http_code === 0 || normalizeAccess(snapshot.access_state) !== 'ok';
 }
 
-function getSeverityBadge(severity?: string) {
-  if (severity === 'critical') {
+function buildProblemFacts(browser: Snapshot, current: Snapshot) {
+  const facts: string[] = [];
+
+  if (current.http_code !== 200) {
+    facts.push(`HTTP ${current.http_code || 0}`);
+  }
+
+  if (browser.text_len > 0 && current.text_len < browser.text_len) {
+    facts.push(`текст: ${current.text_len}`);
+  }
+
+  if (browser.links_count > 0 && current.links_count < browser.links_count) {
+    facts.push(`ссылки: ${current.links_count}`);
+  }
+
+  if (browser.has_h1 && !current.has_h1) {
+    facts.push('H1: нет');
+  }
+
+  if (browser.has_title && !current.has_title) {
+    facts.push('title: нет');
+  }
+
+  if (normalizeAccess(current.access_state) !== 'ok' && current.http_code === 200) {
+    facts.push(`access: ${normalizeAccess(current.access_state)}`);
+  }
+
+  return facts;
+}
+
+function buildAgentCard(params: {
+  key: string;
+  label: string;
+  browser: Snapshot;
+  current: Snapshot;
+}): AgentProblemCard | null {
+  const { key, label, browser, current } = params;
+  const facts = buildProblemFacts(browser, current);
+
+  const severeContentLoss =
+    browser.text_len >= 100 && current.text_len < browser.text_len * 0.3;
+  const moderateContentLoss =
+    browser.text_len >= 100 && current.text_len < browser.text_len * 0.7;
+  const linksReduced =
+    browser.links_count > 0 && current.links_count < browser.links_count;
+  const missingCoreTags =
+    (browser.has_h1 && !current.has_h1) ||
+    (browser.has_title && !current.has_title);
+
+  if (isCriticalAccessIssue(current)) {
     return {
-      label: 'critical',
-      className: 'border-red-200 bg-red-50 text-red-700',
+      key,
+      label,
+      severity: 'critical',
+      title: `${label} не видит страницу`,
+      facts: facts.length ? facts : [`HTTP ${current.http_code || 0}`],
+      recommendation: 'Проверить доступ на уровне CDN, сервера и защитных правил.',
     };
   }
 
+  if (severeContentLoss) {
+    return {
+      key,
+      label,
+      severity: 'critical',
+      title: `${label} получает почти пустую страницу`,
+      facts: facts.length ? facts : [`текст: ${current.text_len}`],
+      recommendation: 'Проверить SSR, пререндер и исходный HTML для этого user-agent.',
+    };
+  }
+
+  if (moderateContentLoss || linksReduced || missingCoreTags) {
+    return {
+      key,
+      label,
+      severity: 'important',
+      title: `${label} видит урезанную версию страницы`,
+      facts: facts,
+      recommendation: 'Сравнить HTML для браузера и бота и проверить рендер ключевых SEO-элементов.',
+    };
+  }
+
+  return null;
+}
+
+function buildBrowserCard(browser: Snapshot): AgentProblemCard | null {
+  if (!isCriticalAccessIssue(browser)) {
+    return null;
+  }
+
+  const facts = [`HTTP ${browser.http_code || 0}`];
+
+  if (normalizeAccess(browser.access_state) !== 'ok' && browser.http_code === 200) {
+    facts.push(`access: ${normalizeAccess(browser.access_state)}`);
+  }
+
   return {
-    label: 'warn',
-    className: 'border-amber-200 bg-amber-50 text-amber-700',
+    key: 'browser',
+    label: 'Браузер',
+    severity: 'critical',
+    title: 'Браузер не открывает страницу',
+    facts,
+    recommendation: 'Проверить доступность страницы и цепочку редиректов.',
   };
 }
 
@@ -169,10 +241,10 @@ function getBannerConfig(data: CheckResponse) {
     title: 'Есть расхождения',
     description:
       'Страница открывается, но часть SEO-сигналов у ботов отличается от браузера. Это стоит проверить до просадки индексации.',
-    icon: AlertTriangle,
-    className: 'border-amber-200 bg-amber-50 text-amber-800',
-    iconClassName: 'text-amber-600',
-  };
+      icon: AlertTriangle,
+      className: 'border-amber-200 bg-amber-50 text-amber-800',
+      iconClassName: 'text-amber-600',
+    };
 }
 
 function getCellClass(params: {
@@ -185,8 +257,11 @@ function getCellClass(params: {
 
   if (agent === 'browser') {
     if (rowKey === 'http') {
-      return current.http_code === 200 ? 'font-semibold text-green-600' : 'font-semibold text-red-600';
+      return current.http_code === 200
+        ? 'font-semibold text-green-600'
+        : 'font-semibold text-red-600';
     }
+
     if (rowKey === 'access') {
       return normalizeAccess(current.access_state) === 'ok'
         ? 'font-semibold text-green-600'
@@ -197,15 +272,12 @@ function getCellClass(params: {
   }
 
   if (rowKey === 'http') {
-    if (current.http_code === 200 && browser.http_code === 200) {
-      return 'font-semibold text-green-600';
+    if (browser.http_code === 200 && current.http_code !== 200) {
+      return 'font-semibold text-red-600';
     }
 
-    if (
-      (browser.http_code === 200 && current.http_code !== 200) ||
-      (current.http_code !== browser.http_code && current.http_code !== 200)
-    ) {
-      return 'font-semibold text-red-600';
+    if (current.http_code === 200) {
+      return 'font-semibold text-green-600';
     }
 
     return 'text-gray-900';
@@ -244,7 +316,10 @@ function getCellClass(params: {
   }
 
   if (rowKey === 'access') {
-    if (normalizeAccess(browser.access_state) === 'ok' && normalizeAccess(current.access_state) !== 'ok') {
+    if (
+      normalizeAccess(browser.access_state) === 'ok' &&
+      normalizeAccess(current.access_state) !== 'ok'
+    ) {
       return 'font-semibold text-red-600';
     }
 
@@ -258,7 +333,10 @@ function getCellClass(params: {
   return 'text-gray-900';
 }
 
-function getCellValue(rowKey: (typeof parameterRows)[number]['key'], snapshot: Snapshot) {
+function getCellValue(
+  rowKey: (typeof parameterRows)[number]['key'],
+  snapshot: Snapshot,
+) {
   if (rowKey === 'http') return snapshot.http_code || 0;
   if (rowKey === 'text') return snapshot.text_len;
   if (rowKey === 'links') return snapshot.links_count;
@@ -273,13 +351,62 @@ export default function SsrCheckPage() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CheckResponse | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-
-  const visibleRules = useMemo(
-    () => getVisibleRules(data?.matched_rules),
-    [data?.matched_rules],
-  );
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all');
 
   const banner = useMemo(() => (data ? getBannerConfig(data) : null), [data]);
+
+  const groupedCards = useMemo(() => {
+    if (!data) return [];
+
+    const cards: AgentProblemCard[] = [];
+    const browserCard = buildBrowserCard(data.checks.browser);
+
+    if (browserCard) {
+      cards.push(browserCard);
+    }
+
+    const yandexCard = buildAgentCard({
+      key: 'yandex',
+      label: 'Яндекс',
+      browser: data.checks.browser,
+      current: data.checks.yandex,
+    });
+    const googleCard = buildAgentCard({
+      key: 'google',
+      label: 'Google',
+      browser: data.checks.browser,
+      current: data.checks.google,
+    });
+
+    if (yandexCard) cards.push(yandexCard);
+    if (googleCard) cards.push(googleCard);
+
+    if (cards.length === 0 && data.rule_verdict !== 'ok') {
+      cards.push({
+        key: 'general',
+        label: 'Общая проверка',
+        severity: data.rule_verdict === 'fail' ? 'critical' : 'important',
+        title: data.rule_summary || 'Требуется ручная проверка',
+        facts: [],
+        recommendation:
+          data.rule_recommendation ||
+          'Проверить HTML страницы для браузера и поисковых ботов.',
+      });
+    }
+
+    return cards;
+  }, [data]);
+
+  const criticalCount = groupedCards.filter(
+    (card) => card.severity === 'critical',
+  ).length;
+  const importantCount = groupedCards.filter(
+    (card) => card.severity === 'important',
+  ).length;
+
+  const filteredCards = groupedCards.filter((card) =>
+    severityFilter === 'all' ? true : card.severity === severityFilter,
+  );
 
   const onCheck = async () => {
     if (!url.trim()) {
@@ -290,6 +417,7 @@ export default function SsrCheckPage() {
     setError(null);
     setData(null);
     setShowDetails(false);
+    setSeverityFilter('all');
 
     try {
       const response = await fetch('/api/ssr-check', {
@@ -316,7 +444,9 @@ export default function SsrCheckPage() {
   return (
     <div className="min-h-screen">
       <main className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
-        <h1 className="text-3xl font-semibold text-gray-900">Bot vs Browser SEO Check</h1>
+        <h1 className="text-3xl font-semibold text-gray-900">
+          Bot vs Browser SEO Check
+        </h1>
         <p className="mt-2 text-sm text-gray-500">
           Проверьте, как вашу страницу видят Google, Яндекс и браузер.
         </p>
@@ -342,11 +472,11 @@ export default function SsrCheckPage() {
 
           {data && banner && (
             <>
-              <section
-                className={`mt-6 rounded-2xl border px-5 py-4 ${banner.className}`}
-              >
+              <section className={`mt-6 rounded-2xl border px-5 py-4 ${banner.className}`}>
                 <div className="flex items-start gap-3">
-                  <banner.icon className={`mt-0.5 h-6 w-6 shrink-0 ${banner.iconClassName}`} />
+                  <banner.icon
+                    className={`mt-0.5 h-6 w-6 shrink-0 ${banner.iconClassName}`}
+                  />
                   <div>
                     <div className="text-lg font-semibold">{banner.title}</div>
                     <p className="mt-1 text-sm leading-6 text-current/90">
@@ -356,33 +486,87 @@ export default function SsrCheckPage() {
                 </div>
               </section>
 
-              {visibleRules.length > 0 && (
-                <section className="mt-6 space-y-3">
-                  {visibleRules.map((rule) => {
-                    const badge = getSeverityBadge(rule.severity);
+              {groupedCards.length > 0 && (
+                <>
+                  <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+                    <button
+                      type="button"
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${
+                        severityFilter === 'all'
+                          ? 'border-gray-900 bg-gray-900 text-white'
+                          : 'border-gray-200 bg-white text-gray-700'
+                      }`}
+                      onClick={() => setSeverityFilter('all')}
+                    >
+                      <span className="text-xs">●</span>
+                      Все проблемы
+                    </button>
 
-                    return (
+                    {criticalCount > 0 && (
+                      <button
+                        type="button"
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${
+                          severityFilter === 'critical'
+                            ? 'border-red-600 bg-red-600 text-white'
+                            : 'border-red-200 bg-red-50 text-red-700'
+                        }`}
+                        onClick={() => setSeverityFilter('critical')}
+                      >
+                        <span className="text-xs">●</span>
+                        {criticalCount} критических
+                      </button>
+                    )}
+
+                    {importantCount > 0 && (
+                      <button
+                        type="button"
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${
+                          severityFilter === 'important'
+                            ? 'border-amber-600 bg-amber-600 text-white'
+                            : 'border-amber-200 bg-amber-50 text-amber-700'
+                        }`}
+                        onClick={() => setSeverityFilter('important')}
+                      >
+                        <span className="text-xs">●</span>
+                        {importantCount} важных
+                      </button>
+                    )}
+                  </div>
+
+                  <section className="mt-4 space-y-3">
+                    {filteredCards.map((card) => (
                       <article
-                        key={rule.id}
+                        key={card.key}
                         className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
                       >
                         <div className="flex flex-wrap items-center gap-3">
                           <span
-                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${badge.className}`}
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                              card.severity === 'critical'
+                                ? 'border-red-200 bg-red-50 text-red-700'
+                                : 'border-amber-200 bg-amber-50 text-amber-700'
+                            }`}
                           >
-                            {badge.label}
+                            {card.severity}
                           </span>
                           <h2 className="text-base font-semibold text-gray-900">
-                            {rule.summary}
+                            {card.title}
                           </h2>
                         </div>
+
+                        {card.facts.length > 0 && (
+                          <div className="mt-3 text-sm text-gray-700">
+                            {card.facts.join(' · ')}
+                          </div>
+                        )}
+
                         <div className="mt-3 text-sm text-gray-600">
-                          Что проверить: {rule.recommendation}
+                          Что проверить: {card.recommendation}
                         </div>
                       </article>
-                    );
-                  })}
-                </section>
+                    ))}
+                  </section>
+                </>
               )}
 
               <div className="mt-6">
