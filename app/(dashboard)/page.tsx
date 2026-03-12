@@ -3,6 +3,24 @@ import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getUser } from '@/lib/db/queries';
 
+const tools = [
+  {
+    title: 'SSR Check',
+    description: 'Сравнение браузера и SEO-ботов',
+    href: '/tools/ssr-check',
+  },
+  {
+    title: 'LLM Check',
+    description: 'Сравнение браузера и LLM-ботов',
+    href: '/tools/llm-check',
+  },
+  {
+    title: 'Index Check',
+    description: 'HTTP, robots.txt, meta robots и sitemap',
+    href: '/tools/index-check',
+  },
+];
+
 export default async function HomePage() {
   const user = await getUser();
 
@@ -14,16 +32,18 @@ export default async function HomePage() {
             <div className="sm:text-center md:mx-auto md:max-w-2xl lg:col-span-7 lg:text-left">
               <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl md:text-6xl">
                 SEORISK
-                <span className="block text-orange-500">Быстрый аудит SSR/ботов</span>
+                <span className="block text-orange-500">
+                  Проверка рендеринга и индексируемости
+                </span>
               </h1>
               <p className="mt-3 text-base text-gray-700 sm:mt-5 sm:text-xl lg:text-lg xl:text-xl">
-                Проверка расхождений между контентом, который видит браузер, и тем,
-                что получают поисковые и LLM-боты.
+                Проверяйте, что видят браузер, поисковые и LLM-боты, и не теряется ли
+                страница для индексации из-за `robots.txt`, `meta robots` или sitemap.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center lg:justify-start">
                 <Button asChild size="lg" className="rounded-full">
                   <Link href="/tools/ssr-check">
-                    Открыть SSR Check
+                    Открыть инструменты
                     <ArrowRight className="ml-2 h-5 w-5" />
                   </Link>
                 </Button>
@@ -35,48 +55,31 @@ export default async function HomePage() {
               </div>
             </div>
 
-            <div className="mt-12 sm:mx-auto sm:max-w-lg lg:col-span-5 lg:mx-0 lg:mt-0 lg:max-w-none">
+            <div className="mt-12 sm:mx-auto sm:max-w-2xl lg:col-span-5 lg:mx-0 lg:mt-0 lg:max-w-none">
               <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                 <h2 className="text-lg font-semibold text-gray-900">Инструменты</h2>
                 <p className="mt-2 text-sm text-gray-700">
-                  Сравнивайте ответы браузера, поисковых и LLM-ботов в двух
-                  отдельных инструментах.
+                  Три отдельные проверки: рендеринг для SEO-ботов, ответы LLM-ботам и
+                  базовая индексируемость страницы.
                 </p>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-gray-200 p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">SSR Check</div>
-                        <div className="text-xs text-gray-700">
-                          Сравнение браузера и SEO-ботов
+                <div className="mt-4 grid gap-3">
+                  {tools.map((tool) => (
+                    <div key={tool.href} className="rounded-xl border border-gray-200 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{tool.title}</div>
+                          <div className="text-xs text-gray-700">{tool.description}</div>
                         </div>
+                        <Link
+                          href={tool.href}
+                          className="text-sm font-medium text-orange-600 hover:text-orange-700"
+                        >
+                          Перейти -&gt;
+                        </Link>
                       </div>
-                      <Link
-                        href="/tools/ssr-check"
-                        className="text-sm font-medium text-orange-600 hover:text-orange-700"
-                      >
-                        Перейти -&gt;
-                      </Link>
                     </div>
-                  </div>
-
-                  <div className="rounded-xl border border-gray-200 p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">LLM Check</div>
-                        <div className="text-xs text-gray-700">
-                          Сравнение браузера и LLM-ботов
-                        </div>
-                      </div>
-                      <Link
-                        href="/tools/llm-check"
-                        className="text-sm font-medium text-orange-600 hover:text-orange-700"
-                      >
-                        Перейти -&gt;
-                      </Link>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
