@@ -1,6 +1,6 @@
 ﻿import { desc, and, eq, isNull } from 'drizzle-orm';
 import { ensureDb } from './drizzle';
-import { activityLogs, teamMembers, teams, users, ssrChecks } from './schema';
+import { activityLogs, llmChecks, ssrChecks, teamMembers, teams, users } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
 
@@ -161,5 +161,30 @@ export async function getUsersForAdmin(limit = 500) {
     .from(users)
     .where(isNull(users.deletedAt))
     .orderBy(desc(users.createdAt))
+    .limit(limit);
+}
+
+export async function getLlmChecksForAdmin(limit = 200) {
+  const user = await getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return null;
+  }
+
+  return await db
+    .select({
+      id: llmChecks.id,
+      url: llmChecks.url,
+      verdict: llmChecks.verdict,
+      reasons: llmChecks.reasons,
+      createdAt: llmChecks.createdAt,
+      ipAddress: llmChecks.ipAddress,
+      userAgent: llmChecks.userAgent,
+      userEmail: users.email,
+      teamName: teams.name,
+    })
+    .from(llmChecks)
+    .leftJoin(users, eq(llmChecks.userId, users.id))
+    .leftJoin(teams, eq(llmChecks.teamId, teams.id))
+    .orderBy(desc(llmChecks.createdAt))
     .limit(limit);
 }
