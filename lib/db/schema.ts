@@ -95,6 +95,19 @@ export const llmChecks = pgTable('llm_checks', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+export const indexChecks = pgTable('index_checks', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id').references(() => teams.id),
+  userId: integer('user_id').references(() => users.id),
+  url: text('url').notNull(),
+  verdict: varchar('verdict', { length: 20 }),
+  reasons: jsonb('reasons'),
+  details: jsonb('details'),
+  ipAddress: varchar('ip_address', { length: 45 }),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 export const teamsRelations = relations(teams, ({ many }) => ({
   teamMembers: many(teamMembers),
   activityLogs: many(activityLogs),
@@ -161,6 +174,17 @@ export const llmChecksRelations = relations(llmChecks, ({ one }) => ({
   }),
 }));
 
+export const indexChecksRelations = relations(indexChecks, ({ one }) => ({
+  team: one(teams, {
+    fields: [indexChecks.teamId],
+    references: [teams.id],
+  }),
+  user: one(users, {
+    fields: [indexChecks.userId],
+    references: [users.id],
+  }),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;
@@ -175,6 +199,8 @@ export type SsrCheck = typeof ssrChecks.$inferSelect;
 export type NewSsrCheck = typeof ssrChecks.$inferInsert;
 export type LlmCheck = typeof llmChecks.$inferSelect;
 export type NewLlmCheck = typeof llmChecks.$inferInsert;
+export type IndexCheck = typeof indexChecks.$inferSelect;
+export type NewIndexCheck = typeof indexChecks.$inferInsert;
 export type TeamDataWithMembers = Team & {
   teamMembers: (TeamMember & {
     user: Pick<User, 'id' | 'name' | 'email'>;

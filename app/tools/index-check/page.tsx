@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import ToolFaq, { type FaqItem } from '@/components/tool-faq';
 
 type RedirectStep = {
   from_url: string;
@@ -117,6 +118,44 @@ function summaryText(data: IndexCheckResponse) {
         : 'Canonical не совпадает с final URL',
   };
 }
+
+const INDEX_FAQ: FaqItem[] = [
+  {
+    question: 'Какую проблему решает Index Check?',
+    answer:
+      'Страница может быть технически открыта в браузере, но при этом не индексироваться из-за robots.txt, meta robots, canonical, отсутствия в sitemap или других базовых ограничений. Часто такие проблемы приходится проверять вручную в нескольких местах.',
+  },
+  {
+    question: 'Что делает Index Check?',
+    answer:
+      'Инструмент проверяет базовую индексируемость страницы: HTTP-ответ, meta robots, X-Robots-Tag, canonical, robots.txt и наличие URL в sitemap.',
+  },
+  {
+    question: 'Кому нужен этот инструмент?',
+    answer:
+      'SEO-специалистам, контент-менеджерам, владельцам сайтов, редакторам, разработчикам и всем, кто публикует страницы и хочет быстро понять, открыта ли страница для индексации.',
+  },
+  {
+    question: 'Когда Index Check особенно полезен?',
+    answer:
+      'После публикации новой страницы.\nПри проверке страниц, которые не заходят в индекс.\nПосле миграций, редизайнов, смены CMS, SEO-плагинов, robots.txt или sitemap.',
+  },
+  {
+    question: 'Какой результат даёт Index Check?',
+    answer:
+      'Инструмент позволяет за один экран понять, индексируемая ли страница технически: не закрыта ли она от ботов, не стоит ли noindex, нет ли проблем с canonical и присутствует ли URL в sitemap.',
+  },
+  {
+    question: 'На какие вопросы помогает ответить Index Check?',
+    answer:
+      'Отдает ли страница нормальный HTTP-код?\nНет ли noindex или X-Robots-Tag?\nНе закрыта ли страница в robots.txt?\nЕсть ли canonical и не ломает ли он индексацию?\nНайдена ли страница в sitemap?',
+  },
+  {
+    question: 'Что не делает Index Check?',
+    answer:
+      'Инструмент не гарантирует фактическое попадание страницы в поиск и не заменяет данные поисковой системы. Он делает быстрый технический чек базовых условий индексируемости.',
+  },
+];
 
 export default function IndexCheckPage() {
   const [url, setUrl] = useState('');
@@ -370,6 +409,8 @@ export default function IndexCheckPage() {
             </>
           )}
         </div>
+
+        <ToolFaq title="FAQ по Index Check" items={INDEX_FAQ} />
       </main>
     </div>
   );

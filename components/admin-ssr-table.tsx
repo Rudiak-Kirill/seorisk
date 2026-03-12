@@ -29,9 +29,17 @@ function toCsvValue(value: unknown) {
 
 export default function AdminSsrTable({ rows }: AdminSsrTableProps) {
   const [query, setQuery] = useState('');
-  const [verdict, setVerdict] = useState<'all' | 'ok' | 'mismatch' | 'error'>('all');
+  const [verdict, setVerdict] = useState('all');
   const [page, setPage] = useState(1);
   const pageSize = 50;
+
+  const verdictOptions = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((row) => {
+      set.add(row.verdict || 'error');
+    });
+    return ['all', ...Array.from(set).sort()];
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -110,14 +118,15 @@ export default function AdminSsrTable({ rows }: AdminSsrTableProps) {
             value={verdict}
             onChange={(e) => {
               setPage(1);
-              setVerdict(e.target.value as any);
+              setVerdict(e.target.value);
             }}
             className="rounded-md border border-gray-200 px-3 py-2 text-sm"
           >
-            <option value="all">Все</option>
-            <option value="ok">ok</option>
-            <option value="mismatch">mismatch</option>
-            <option value="error">error</option>
+            {verdictOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === 'all' ? 'Все' : option}
+              </option>
+            ))}
           </select>
         </div>
         <button

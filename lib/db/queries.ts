@@ -1,6 +1,14 @@
 ﻿import { desc, and, eq, isNull } from 'drizzle-orm';
 import { ensureDb } from './drizzle';
-import { activityLogs, llmChecks, ssrChecks, teamMembers, teams, users } from './schema';
+import {
+  activityLogs,
+  indexChecks,
+  llmChecks,
+  ssrChecks,
+  teamMembers,
+  teams,
+  users,
+} from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
 
@@ -186,5 +194,30 @@ export async function getLlmChecksForAdmin(limit = 200) {
     .leftJoin(users, eq(llmChecks.userId, users.id))
     .leftJoin(teams, eq(llmChecks.teamId, teams.id))
     .orderBy(desc(llmChecks.createdAt))
+    .limit(limit);
+}
+
+export async function getIndexChecksForAdmin(limit = 200) {
+  const user = await getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return null;
+  }
+
+  return await db
+    .select({
+      id: indexChecks.id,
+      url: indexChecks.url,
+      verdict: indexChecks.verdict,
+      reasons: indexChecks.reasons,
+      createdAt: indexChecks.createdAt,
+      ipAddress: indexChecks.ipAddress,
+      userAgent: indexChecks.userAgent,
+      userEmail: users.email,
+      teamName: teams.name,
+    })
+    .from(indexChecks)
+    .leftJoin(users, eq(indexChecks.userId, users.id))
+    .leftJoin(teams, eq(indexChecks.teamId, teams.id))
+    .orderBy(desc(indexChecks.createdAt))
     .limit(limit);
 }

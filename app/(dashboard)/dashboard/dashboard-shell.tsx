@@ -84,6 +84,15 @@ export default function DashboardShell({ children, isAdmin }: DashboardShellProp
                     LLM отчёт
                   </Button>
                 </Link>
+                <Link href="/admin/index" passHref>
+                  <Button
+                    variant="ghost"
+                    className="shadow-none w-full justify-start"
+                    onClick={() => setIsSidebarOpen(false)}
+                  >
+                    Index отчёт
+                  </Button>
+                </Link>
                 <Link href="/admin/users" passHref>
                   <Button
                     variant="ghost"
