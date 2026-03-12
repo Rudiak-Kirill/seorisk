@@ -1,6 +1,13 @@
-﻿'use client';
+'use client';
 
 import { useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  ShieldAlert,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ToolFaq, { type FaqItem } from '@/components/tool-faq';
@@ -18,8 +25,8 @@ const LLM_OPTIONS = [
   { key: 'bytespider', label: 'Bytespider' },
   { key: 'diffbot', label: 'Diffbot' },
   { key: 'ccbot', label: 'CCBot' },
-  { key: 'cohere-ai', label: 'Cohere' }
-];
+  { key: 'cohere-ai', label: 'Cohere' },
+] as const;
 
 type Snapshot = {
   http_code: number;
@@ -44,25 +51,27 @@ type LlmResponse = {
   error?: string;
 };
 
-const formatSnapshot = (snap: Snapshot) => ({
-  http: snap.http_code,
-  text_len: snap.text_len,
-  links: snap.links_count,
-  h1: snap.has_h1 ? 'есть' : 'нет',
-  title: snap.has_title ? 'есть' : 'нет',
-  access: snap.access_state || 'ok',
-});
+type AgentStatus = 'ok' | 'warn' | 'fail';
+
+type AgentResult = {
+  key: string;
+  label: string;
+  snap: Snapshot;
+  status: AgentStatus;
+  badge: string;
+  summary: string;
+};
 
 const LLM_FAQ: FaqItem[] = [
   {
-    question: 'Какую проблему решает LLM Check?',
+    question: 'Какую боль решает LLM Check?',
     answer:
-      'Сайт может быть доступен обычным пользователям и поисковым ботам, но недоступен или частично недоступен для LLM-ботов и AI-краулеров. Это снижает вероятность попадания контента в AI-поиск, AI-ответы и новые каналы обнаружения контента.',
+      'Сайт может быть доступен обычным пользователям и поисковым ботам, но недоступен или частично недоступен для LLM-ботов и AI-краулеров. Это значит, что контент хуже попадает в AI-поиск, AI-ответы и будущие каналы обнаружения контента.',
   },
   {
     question: 'Что делает LLM Check?',
     answer:
-      'Инструмент проверяет, как страницу видят разные LLM-боты и AI-агенты. Он сравнивает ответ браузера и популярных AI-ботов по HTTP, тексту, ссылкам, H1, title и статусу доступа.',
+      'Инструмент проверяет, как страницу видят разные LLM-боты и AI-агенты. Сравнивает ответ браузера и популярных AI-ботов по HTTP, тексту, ссылкам, H1, title и статусу доступа.',
   },
   {
     question: 'Кому нужен этот инструмент?',
@@ -77,10 +86,10 @@ const LLM_FAQ: FaqItem[] = [
   {
     question: 'Какой результат даёт LLM Check?',
     answer:
-      'Инструмент позволяет увидеть, какие AI-боты получают страницу нормально, а какие — нет. Это помогает быстро найти технические ограничения, которые могут снижать видимость сайта для LLM-платформ.',
+      'Позволяет увидеть, какие AI-боты получают страницу нормально, а какие — нет. Помогает быстро найти технические ограничения, которые могут снижать видимость сайта для LLM-платформ.',
   },
   {
-    question: 'На какие вопросы помогает ответить LLM Check?',
+    question: 'Какие вопросы помогает ответить LLM Check?',
     answer:
       'Доступна ли страница для GPTBot, ClaudeBot, PerplexityBot и других?\nНе блокируются ли AI-боты сервером, CDN или правилами защиты?\nПолучают ли они текст и основные элементы страницы?\nЕсть ли расхождения между браузером и AI-ботами?',
   },
@@ -91,64 +100,217 @@ const LLM_FAQ: FaqItem[] = [
   },
 ];
 
+function getAccessLabel(value?: string | null) {
+  return value || 'ok';
+}
+
+function getBotSummary(browser: Snapshot, snap: Snapshot) {
+  const access = getAccessLabel(snap.access_state);
+
+  if (snap.http_code !== 200 || access !== 'ok') {
+    if (snap.http_code >= 500) {
+      return {
+        status: 'fail' as const,
+        badge: snap.http_code ? String(snap.http_code) : 'ERR',
+        summary:
+          'Сервер вернул ошибку. Бот не получил страницу — возможна блокировка на уровне CDN или сервера.',
+      };
+    }
+
+    if (snap.http_code >= 400) {
+      return {
+        status: 'fail' as const,
+        badge: String(snap.http_code),
+        summary:
+          'Доступ для бота ограничен. Проверьте правила защиты, CDN и фильтрацию по user-agent.',
+      };
+    }
+
+    if (access === 'captcha' || access === 'challenge' || access === 'blocked') {
+      return {
+        status: 'fail' as const,
+        badge: access,
+        summary:
+          'Бот упирается в защиту сайта и не получает нормальный ответ страницы.',
+      };
+    }
+
+    return {
+      status: 'fail' as const,
+      badge: 'ошибка',
+      summary:
+        'Бот не смог получить страницу. Проверьте доступность, таймауты и ответы сервера.',
+    };
+  }
+
+  const issues: string[] = [];
+
+  if (browser.text_len >= 100 && snap.text_len < browser.text_len * 0.7) {
+    issues.push('бот получает заметно меньше текста');
+  }
+
+  if (browser.links_count > 0 && snap.links_count < browser.links_count) {
+    issues.push('бот видит меньше ссылок');
+  }
+
+  if (browser.has_h1 && !snap.has_h1) {
+    issues.push('бот не видит H1');
+  }
+
+  if (browser.has_title && !snap.has_title) {
+    issues.push('бот не видит title');
+  }
+
+  if (issues.length > 0) {
+    return {
+      status: 'warn' as const,
+      badge: 'warn',
+      summary: `${issues[0][0].toUpperCase()}${issues[0].slice(1)}.`,
+    };
+  }
+
+  return {
+    status: 'ok' as const,
+    badge: 'ok',
+    summary: 'Бот получает страницу без заметных расхождений.',
+  };
+}
+
+function getBannerConfig(failCount: number, warnCount: number) {
+  if (failCount > 0) {
+    return {
+      title: 'Есть проблема',
+      description:
+        failCount === 1
+          ? 'Один AI-бот не может получить страницу.'
+          : `${failCount} AI-бота не могут получить страницу.`,
+      icon: ShieldAlert,
+      className: 'border-red-200 bg-red-50 text-red-800',
+      iconClassName: 'text-red-600',
+    };
+  }
+
+  if (warnCount > 0) {
+    return {
+      title: 'Есть расхождения',
+      description:
+        warnCount === 1
+          ? 'Один AI-бот видит урезанную версию страницы.'
+          : `${warnCount} AI-бота видят урезанную версию страницы.`,
+      icon: AlertTriangle,
+      className: 'border-amber-200 bg-amber-50 text-amber-800',
+      iconClassName: 'text-amber-600',
+    };
+  }
+
+  return {
+    title: 'Всё в порядке',
+    description: 'AI-боты получают страницу без заметных расхождений.',
+    icon: CheckCircle2,
+    className: 'border-green-200 bg-green-50 text-green-800',
+    iconClassName: 'text-green-600',
+  };
+}
+
+function getCountPillClass(status: AgentStatus) {
+  if (status === 'fail') return 'border-red-200 bg-red-50 text-red-700';
+  if (status === 'warn') return 'border-amber-200 bg-amber-50 text-amber-700';
+  return 'border-green-200 bg-green-50 text-green-700';
+}
+
+function formatSnapshot(snap: Snapshot) {
+  return {
+    http: snap.http_code,
+    text: snap.text_len,
+    links: snap.links_count,
+    h1: snap.has_h1 ? 'есть' : 'нет',
+    title: snap.has_title ? 'есть' : 'нет',
+    access: getAccessLabel(snap.access_state),
+  };
+}
+
 export default function LlmCheckPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LlmResponse | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
 
-  const rows = useMemo(() => {
+  const browserSnapshot = data?.checks.browser;
+
+  const agentResults = useMemo(() => {
+    if (!data || !browserSnapshot) return [];
+
+    return LLM_OPTIONS.map((option) => {
+      const snap = data.checks[option.key];
+      if (!snap) return null;
+
+      const result = getBotSummary(browserSnapshot, snap);
+
+      return {
+        key: option.key,
+        label: option.label,
+        snap,
+        ...result,
+      } satisfies AgentResult;
+    }).filter(Boolean) as AgentResult[];
+  }, [browserSnapshot, data]);
+
+  const okCount = agentResults.filter((item) => item.status === 'ok').length;
+  const warnCount = agentResults.filter((item) => item.status === 'warn').length;
+  const failCount = agentResults.filter((item) => item.status === 'fail').length;
+  const problemAgents = agentResults.filter((item) => item.status !== 'ok');
+
+  const banner = useMemo(
+    () => getBannerConfig(failCount, warnCount),
+    [failCount, warnCount],
+  );
+
+  const detailRows = useMemo(() => {
     if (!data) return [];
 
-    const result = [
-      { key: 'browser', label: 'Browser', snap: data.checks.browser },
-      ...LLM_OPTIONS.map((opt) => ({
-        key: opt.key,
-        label: opt.label,
-        snap: data.checks[opt.key],
-      })).filter((row) => Boolean(row.snap)),
-    ];
+    const sortedAgents = [...agentResults].sort((left, right) => {
+      const order: Record<AgentStatus, number> = { fail: 0, warn: 1, ok: 2 };
+      return order[left.status] - order[right.status];
+    });
 
-    return result as Array<{ key: string; label: string; snap: Snapshot }>;
-  }, [data]);
+    return [
+      { key: 'browser', label: 'Browser', snap: data.checks.browser, status: 'ok' as AgentStatus },
+      ...sortedAgents,
+    ];
+  }, [agentResults, data]);
 
   const maxTextLen = useMemo(() => {
-    if (!rows.length) return 0;
-    return rows.reduce((maxValue, row) => Math.max(maxValue, row.snap.text_len), 0);
-  }, [rows]);
+    if (!detailRows.length) return 0;
 
-  const okClass = 'font-semibold text-green-600';
-  const badClass = 'font-semibold text-red-600';
-  const httpClass = (value: number) => (value === 200 ? okClass : badClass);
-  const textClass = (value: number) => (value < maxTextLen ? badClass : okClass);
-  const linksClass = (value: number) => (value > 0 ? okClass : badClass);
-  const boolClass = (value: boolean) => (value ? okClass : badClass);
-  const accessClass = (value?: string | null) =>
-    (value || 'ok') === 'ok' ? okClass : badClass;
+    return detailRows.reduce(
+      (maxValue, row) => Math.max(maxValue, row.snap.text_len),
+      0,
+    );
+  }, [detailRows]);
 
   const onCheck = async () => {
     if (!url.trim()) return;
+
     setLoading(true);
     setError(null);
     setData(null);
+    setShowDetails(false);
+
     try {
-      const resp = await fetch('/api/llm-check', {
+      const response = await fetch('/api/llm-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
-      const raw = await resp.text();
-      let payload: (LlmResponse & { error?: string }) | null = null;
-      try {
-        payload = JSON.parse(raw) as LlmResponse & { error?: string };
-      } catch {
-        setError(raw || 'Ошибка');
-        return;
-      }
-      if (!resp.ok || payload.ok === false) {
+
+      const payload = (await response.json()) as LlmResponse;
+
+      if (!response.ok || payload.ok === false) {
         setError(payload.error || 'Ошибка');
         return;
       }
+
       setData(payload);
     } catch (err) {
       setError(String(err));
@@ -159,10 +321,10 @@ export default function LlmCheckPage() {
 
   return (
     <div className="min-h-screen">
-      <main className="mx-auto max-w-5xl px-4 py-16 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
         <h1 className="text-3xl font-semibold text-gray-900">LLM Check</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Сравните ответ браузера и популярных LLM-ботов.
+          Проверьте, как вашу страницу видят AI-боты и LLM-краулеры.
         </p>
 
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -171,7 +333,7 @@ export default function LlmCheckPage() {
               className="flex-1"
               placeholder="https://example.com"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(event) => setUrl(event.target.value)}
             />
             <Button className="rounded-full" onClick={onCheck} disabled={loading}>
               {loading ? 'Проверяем...' : 'Проверить'}
@@ -179,63 +341,173 @@ export default function LlmCheckPage() {
           </div>
 
           {error && (
-            <div className="mt-3 rounded-md bg-black px-4 py-3 text-sm text-white">
+            <div className="mt-4 rounded-md bg-black px-4 py-3 text-sm text-white">
               {error}
             </div>
           )}
 
           {data && (
-            <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Агент</th>
-                    <th className="px-4 py-3 text-left">HTTP</th>
-                    <th className="px-4 py-3 text-left">Текст</th>
-                    <th className="px-4 py-3 text-left">Ссылки</th>
-                    <th className="px-4 py-3 text-left">H1</th>
-                    <th className="px-4 py-3 text-left">Title</th>
-                    <th className="px-4 py-3 text-left">Access</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, index) => {
-                    const view = formatSnapshot(row.snap);
+            <>
+              <section
+                className={`mt-6 rounded-2xl border ${banner.className}`}
+              >
+                <div className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                  <div className="flex items-start gap-3">
+                    <banner.icon className={`mt-0.5 h-6 w-6 shrink-0 ${banner.iconClassName}`} />
+                    <div>
+                      <div className="text-lg font-semibold">{banner.title}</div>
+                      <p className="mt-1 text-sm leading-6 text-current/90">
+                        {banner.description}
+                      </p>
+                    </div>
+                  </div>
 
-                    return (
-                      <tr
-                        key={row.key}
-                        className={
-                          index === 0
-                            ? 'border-t border-gray-100 bg-gray-50/50'
-                            : 'border-t border-gray-100'
-                        }
+                  <div className="flex flex-wrap gap-2">
+                    <span
+                      className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
+                        'ok',
+                      )}`}
+                    >
+                      {okCount} ботов — норма
+                    </span>
+                    {warnCount > 0 && (
+                      <span
+                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
+                          'warn',
+                        )}`}
                       >
-                        <td className="px-4 py-3 font-medium text-gray-900">{row.label}</td>
-                        <td className="px-4 py-3">
-                          <span className={httpClass(row.snap.http_code)}>{view.http}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={textClass(row.snap.text_len)}>{view.text_len}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={linksClass(row.snap.links_count)}>{view.links}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={boolClass(row.snap.has_h1)}>{view.h1}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={boolClass(row.snap.has_title)}>{view.title}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={accessClass(row.snap.access_state)}>{view.access}</span>
-                        </td>
+                        {warnCount} с расхождениями
+                      </span>
+                    )}
+                    {failCount > 0 && (
+                      <span
+                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
+                          'fail',
+                        )}`}
+                      >
+                        {failCount} заблокирован
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {problemAgents.length > 0 && (
+                  <div className="border-t border-black/10 bg-white/60">
+                    {problemAgents.map((agent) => (
+                      <div
+                        key={agent.key}
+                        className="grid gap-3 px-5 py-4 md:grid-cols-[180px_1fr]"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`inline-flex min-w-14 justify-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              agent.status === 'fail'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {agent.badge}
+                          </span>
+                          <span className="font-medium text-gray-900">{agent.label}</span>
+                        </div>
+                        <div className="text-sm text-gray-600">{agent.summary}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <div className="mt-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => setShowDetails((prev) => !prev)}
+                >
+                  {showDetails ? 'Скрыть детали' : 'Показать детали'}
+                  {showDetails ? (
+                    <ChevronUp className="ml-2 h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="ml-2 h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+
+              {showDetails && (
+                <section className="mt-6 overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Агент</th>
+                        <th className="px-4 py-3 text-left">HTTP</th>
+                        <th className="px-4 py-3 text-left">Текст</th>
+                        <th className="px-4 py-3 text-left">Ссылки</th>
+                        <th className="px-4 py-3 text-left">H1</th>
+                        <th className="px-4 py-3 text-left">Title</th>
+                        <th className="px-4 py-3 text-left">Access</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {detailRows.map((row) => {
+                        const view = formatSnapshot(row.snap);
+                        const textClass =
+                          row.key !== 'browser' && row.snap.text_len < maxTextLen
+                            ? 'font-semibold text-red-600'
+                            : row.key === 'browser'
+                              ? 'text-gray-900'
+                              : 'font-semibold text-green-600';
+                        const linksClass =
+                          row.snap.links_count > 0
+                            ? 'font-semibold text-green-600'
+                            : 'font-semibold text-red-600';
+                        const boolTrueClass = 'font-semibold text-green-600';
+                        const boolFalseClass = 'font-semibold text-red-600';
+                        const accessClass =
+                          getAccessLabel(row.snap.access_state) === 'ok'
+                            ? 'font-semibold text-green-600'
+                            : 'font-semibold text-red-600';
+
+                        return (
+                          <tr key={row.key} className="border-t border-gray-100">
+                            <td className="px-4 py-3 font-medium text-gray-900">{row.label}</td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={
+                                  row.snap.http_code === 200
+                                    ? 'font-semibold text-green-600'
+                                    : 'font-semibold text-red-600'
+                                }
+                              >
+                                {view.http}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={textClass}>{view.text}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={linksClass}>{view.links}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={row.snap.has_h1 ? boolTrueClass : boolFalseClass}>
+                                {view.h1}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={row.snap.has_title ? boolTrueClass : boolFalseClass}>
+                                {view.title}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={accessClass}>{view.access}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </section>
+              )}
+            </>
           )}
         </div>
 
