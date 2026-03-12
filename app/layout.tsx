@@ -78,6 +78,12 @@ ym(${METRIKA_ID}, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"da
                 SSR Check
               </Link>
               <Link
+                href="/tools/llm-check"
+                className="text-sm font-medium text-gray-700 hover:text-gray-900"
+              >
+                LLM Check
+              </Link>
+              <Link
                 href={authHref}
                 className="text-sm font-medium text-gray-700 hover:text-gray-900"
               >

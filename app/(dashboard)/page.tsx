@@ -59,6 +59,24 @@ export default async function HomePage() {
                       Перейти →
                     </Link>
                   </div>
+                <div className="mt-3 rounded-xl border border-gray-200 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">
+                        LLM Check
+                      </div>
+                      <div className="text-xs text-gray-700">
+                        Сравнение LLM-ботов с браузером
+                      </div>
+                    </div>
+                    <Link
+                      href="/tools/llm-check"
+                      className="text-sm font-medium text-orange-600 hover:text-orange-700"
+                    >
+                      Перейти →
+                    </Link>
+                  </div>
+                </div>
                 </div>
               </div>
             </div>
