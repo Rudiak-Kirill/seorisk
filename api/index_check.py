@@ -221,7 +221,9 @@ def parse_robots_txt(text: str) -> tuple[list[dict], list[str]]:
     return groups, sitemaps
 
 
-def choose_robots_group(groups: list[dict], target_user_agent: str = "googlebot") -> tuple[dict | None, str | None]:
+def choose_robots_group(
+    groups: list[dict], target_user_agent: str = "googlebot"
+) -> tuple[dict | None, str | None]:
     best_group = None
     best_agent = None
     best_score = -1
@@ -302,13 +304,15 @@ def extract_loc_values(root: ET.Element, parent_tag: str) -> list[str]:
     return values
 
 
-def inspect_sitemap(start_url: str, target_url: str) -> tuple[bool, str | None, int]:
+def inspect_sitemap(start_url: str, target_url: str) -> tuple[bool, str | None, int, int]:
     queue = [start_url]
     seen = set()
     fetch_count = 0
     normalized_target = normalize_compare_url(target_url)
     root_type = None
     root_status = 0
+    urls_count = 0
+    page_found = False
 
     while queue and fetch_count < MAX_SITEMAP_FETCHES:
         current = queue.pop(0)
@@ -337,8 +341,12 @@ def inspect_sitemap(start_url: str, target_url: str) -> tuple[bool, str | None, 
 
         if current_type == "urlset":
             urls = extract_loc_values(root, "url")
-            if any(same_url(url, normalized_target) or normalize_compare_url(url) == normalized_target for url in urls):
-                return True, root_type, root_status
+            urls_count += len(urls)
+            if any(
+                same_url(url, normalized_target) or normalize_compare_url(url) == normalized_target
+                for url in urls
+            ):
+                page_found = True
 
         if current_type == "sitemapindex":
             sitemap_urls = extract_loc_values(root, "sitemap")
@@ -346,7 +354,7 @@ def inspect_sitemap(start_url: str, target_url: str) -> tuple[bool, str | None, 
                 if sitemap_url not in seen and len(queue) < MAX_SITEMAP_FETCHES:
                     queue.append(sitemap_url)
 
-    return False, root_type, root_status
+    return page_found, root_type, root_status, urls_count
 
 
 def check_sitemap(site_root: str, final_url: str, robots_sitemaps: list[str]) -> dict:
@@ -364,15 +372,17 @@ def check_sitemap(site_root: str, final_url: str, robots_sitemaps: list[str]) ->
         "sitemap_status_code": 0,
         "sitemap_type": None,
         "page_in_sitemap": False,
+        "sitemap_urls_count": 0,
     }
 
     for source, sitemap_url in candidates:
-        page_found, sitemap_type, status_code = inspect_sitemap(sitemap_url, final_url)
+        page_found, sitemap_type, status_code, urls_count = inspect_sitemap(sitemap_url, final_url)
         if status_code:
             fallback["sitemap_status_code"] = status_code
             fallback["sitemap_url"] = sitemap_url
             fallback["sitemap_source"] = source
             fallback["sitemap_type"] = sitemap_type
+            fallback["sitemap_urls_count"] = urls_count
 
         if status_code and 200 <= status_code < 300:
             return {
@@ -382,12 +392,15 @@ def check_sitemap(site_root: str, final_url: str, robots_sitemaps: list[str]) ->
                 "sitemap_status_code": status_code,
                 "sitemap_type": sitemap_type,
                 "page_in_sitemap": page_found,
+                "sitemap_urls_count": urls_count,
             }
 
     return fallback
 
 
-def build_verdict(http_ok: bool, indexable_meta: bool, robots_allowed: bool, in_sitemap: bool) -> tuple[str, list[str]]:
+def build_verdict(
+    http_ok: bool, indexable_meta: bool, robots_allowed: bool, in_sitemap: bool
+) -> tuple[str, list[str]]:
     reasons = []
 
     if not http_ok:
@@ -425,11 +438,14 @@ def _handle_request(params: dict) -> dict:
     x_robots_tag = page.get("headers", {}).get("x-robots-tag")
     canonical_url = urljoin(final_url, parser.canonical_url) if parser.canonical_url else None
     canonical_self = same_url(canonical_url, final_url) if canonical_url else None
+    canonical_ok = bool(canonical_url and canonical_self)
 
     robots_url = urljoin(site_root, "/robots.txt")
     robots_fetch = fetch_url(robots_url, max_bytes=200_000)
     robots_found = robots_fetch.get("ok") and 200 <= robots_fetch.get("status_code", 0) < 300
-    robots_groups, robots_sitemaps = parse_robots_txt(robots_fetch.get("body_text") or "") if robots_found else ([], [])
+    robots_groups, robots_sitemaps = (
+        parse_robots_txt(robots_fetch.get("body_text") or "") if robots_found else ([], [])
+    )
     robots_group, robots_user_agent = choose_robots_group(robots_groups, "googlebot")
     robots_allowed, robots_rule, robots_rules = evaluate_robots(robots_group, final_url)
 
@@ -456,6 +472,7 @@ def _handle_request(params: dict) -> dict:
             "x_robots_tag": x_robots_tag,
             "canonical_url": canonical_url,
             "canonical_self": canonical_self,
+            "canonical_ok": canonical_ok,
             "robots_url": robots_url,
             "robots_found": bool(robots_found),
             "robots_status_code": robots_fetch.get("status_code", 0),
@@ -470,6 +487,7 @@ def _handle_request(params: dict) -> dict:
             "sitemap_status_code": sitemap_result.get("sitemap_status_code"),
             "sitemap_type": sitemap_result.get("sitemap_type"),
             "page_in_sitemap": sitemap_result.get("page_in_sitemap"),
+            "sitemap_urls_count": sitemap_result.get("sitemap_urls_count"),
             "http_ok": bool(http_ok),
             "indexable_meta": bool(indexable_meta),
             "verdict": verdict,

@@ -22,6 +22,7 @@ type IndexCheckResponse = {
   x_robots_tag: string | null;
   canonical_url: string | null;
   canonical_self: boolean | null;
+  canonical_ok: boolean;
   robots_url: string;
   robots_found: boolean;
   robots_status_code: number;
@@ -36,6 +37,7 @@ type IndexCheckResponse = {
   sitemap_status_code: number;
   sitemap_type: string | null;
   page_in_sitemap: boolean;
+  sitemap_urls_count: number;
   http_ok: boolean;
   indexable_meta: boolean;
   verdict: 'ok' | 'warn' | 'fail';
@@ -96,6 +98,26 @@ function DetailRow({
   );
 }
 
+function summaryText(data: IndexCheckResponse) {
+  return {
+    robots: data.robots_found
+      ? data.robots_allowed_for_page
+        ? data.robots_matched_rule
+          ? `Сработало правило: ${data.robots_matched_rule}`
+          : 'Блокирующее правило не найдено'
+        : `Блокирует правило: ${data.robots_matched_rule || 'не найдено'}`
+      : 'robots.txt не найден',
+    sitemap: data.sitemap_found
+      ? `Найдено URL: ${data.sitemap_urls_count || 0}`
+      : 'Sitemap не найден',
+    canonical: !data.canonical_url
+      ? 'Canonical не найден'
+      : data.canonical_self
+        ? 'Canonical совпадает с final URL'
+        : 'Canonical не совпадает с final URL',
+  };
+}
+
 export default function IndexCheckPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -138,12 +160,15 @@ export default function IndexCheckPage() {
     }
   };
 
+  const summary = data ? summaryText(data) : null;
+
   return (
     <div className="min-h-screen">
       <main className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
         <h1 className="text-3xl font-semibold text-gray-900">Index Check</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Проверьте HTTP, meta robots, robots.txt и наличие страницы в sitemap.
+          Проверьте HTTP, meta robots, robots.txt, canonical и наличие страницы в
+          sitemap.
         </p>
 
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -165,7 +190,7 @@ export default function IndexCheckPage() {
             </div>
           )}
 
-          {data && (
+          {data && summary && (
             <>
               <div
                 className={`mt-6 rounded-xl border px-4 py-3 text-sm font-medium ${verdictClass(data.verdict)}`}
@@ -176,7 +201,7 @@ export default function IndexCheckPage() {
                   : 'Явных проблем не найдено'}
               </div>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                   <div className="text-sm font-semibold text-gray-900">HTTP ответ</div>
                   <div className={`mt-3 text-2xl font-semibold ${stateClass(data.http_ok)}`}>
@@ -204,6 +229,16 @@ export default function IndexCheckPage() {
                 </div>
 
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="text-sm font-semibold text-gray-900">Canonical</div>
+                  <div
+                    className={`mt-3 text-2xl font-semibold ${stateClass(data.canonical_ok)}`}
+                  >
+                    {data.canonical_ok ? 'OK' : 'Нет'}
+                  </div>
+                  <div className="mt-2 text-sm text-gray-600">{summary.canonical}</div>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                   <div className="text-sm font-semibold text-gray-900">Robots.txt</div>
                   <div
                     className={`mt-3 text-2xl font-semibold ${stateClass(
@@ -212,11 +247,7 @@ export default function IndexCheckPage() {
                   >
                     {boolLabel(data.robots_allowed_for_page, 'Разрешена', 'Запрещена')}
                   </div>
-                  <div className="mt-2 text-sm text-gray-600">
-                    {data.robots_found
-                      ? 'Правила robots.txt проверены'
-                      : 'robots.txt не найден'}
-                  </div>
+                  <div className="mt-2 text-sm text-gray-600">{summary.robots}</div>
                 </div>
 
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -226,11 +257,7 @@ export default function IndexCheckPage() {
                   >
                     {boolLabel(data.page_in_sitemap, 'Есть', 'Нет')}
                   </div>
-                  <div className="mt-2 text-sm text-gray-600">
-                    {data.sitemap_found
-                      ? 'Страница проверена по sitemap'
-                      : 'Sitemap не найден'}
-                  </div>
+                  <div className="mt-2 text-sm text-gray-600">{summary.sitemap}</div>
                 </div>
               </div>
 
@@ -315,6 +342,7 @@ export default function IndexCheckPage() {
                       label="Sitemap type"
                       value={data.sitemap_type || 'Неизвестно'}
                     />
+                    <DetailRow label="URL count" value={data.sitemap_urls_count || 0} />
                     <DetailRow
                       label="Page in sitemap"
                       value={boolLabel(data.page_in_sitemap, 'Да', 'Нет')}
