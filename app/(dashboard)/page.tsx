@@ -42,39 +42,42 @@ export default async function HomePage() {
                   Начни с SSR Check. Дальше добавим новые инструменты в этой
                   витрине.
                 </p>
-                <div className="mt-4 rounded-xl border border-gray-200 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">
-                        SSR Check
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">
+                          SSR Check
+                        </div>
+                        <div className="text-xs text-gray-700">
+                          Сравнение браузер / боты
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-700">
-                        Сравнение браузер / боты
-                      </div>
+                      <Link
+                        href="/tools/ssr-check"
+                        className="text-sm font-medium text-orange-600 hover:text-orange-700"
+                      >
+                        Перейти →
+                      </Link>
                     </div>
-                    <Link
-                      href="/tools/ssr-check"
-                      className="text-sm font-medium text-orange-600 hover:text-orange-700"
-                    >
-                      Перейти →
-                    </Link>
                   </div>
-                <div className="mt-3 rounded-xl border border-gray-200 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">
-                        LLM Check
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">
+                          LLM Check
+                        </div>
+                        <div className="text-xs text-gray-700">
+                          Сравнение LLM-ботов с браузером
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-700">
-                        Сравнение LLM-ботов с браузером
-                      </div>
+                      <Link
+                        href="/tools/llm-check"
+                        className="text-sm font-medium text-orange-600 hover:text-orange-700"
+                      >
+                        Перейти →
+                      </Link>
                     </div>
-                    <Link
-                      href="/tools/llm-check"
-                      className="text-sm font-medium text-orange-600 hover:text-orange-700"
-                    >
-                      Перейти →
-                    </Link>
                   </div>
                 </div>
                 </div>
