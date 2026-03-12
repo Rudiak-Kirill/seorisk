@@ -145,7 +145,14 @@ export default function LlmCheckPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
-      const payload = (await resp.json()) as LlmResponse & { error?: string };
+      const raw = await resp.text();
+      let payload: (LlmResponse & { error?: string }) | null = null;
+      try {
+        payload = JSON.parse(raw) as LlmResponse & { error?: string };
+      } catch {
+        setError(raw || 'Ошибка');
+        return;
+      }
       if (!resp.ok || payload.ok === false) {
         setError(payload.error || 'Ошибка');
         return;

@@ -1,6 +1,7 @@
 ﻿import json
 import re
 import time
+import concurrent.futures
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler
@@ -230,25 +231,39 @@ def fetch_once(url: str, ua: str) -> dict:
     }
 
 
-def _resolve_agent(key: str) -> dict:
-    if key in LLM_UA_MAP:
-        return {"key": key, **LLM_UA_MAP[key]}
-    # fallback to gptbot
-    return {"key": "gptbot", **LLM_UA_MAP["gptbot"]}
-
-
 def _handle_request(params: dict) -> dict:
     raw_url = params.get("url") or ""
     url = normalize_url(raw_url)
     if not valid_url(url):
         return json_response({"ok": False, "error": "Неверный URL"}, 400)
 
-    browser = fetch_once(url, BROWSER_UA)
-    checks = {"browser": browser}
+    checks = {}
     meta = {}
-    for key, agent in LLM_UA_MAP.items():
-        checks[key] = fetch_once(url, agent["ua"])
-        meta[key] = agent
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {}
+        futures['browser'] = executor.submit(fetch_once, url, BROWSER_UA)
+        for key, agent in LLM_UA_MAP.items():
+            futures[key] = executor.submit(fetch_once, url, agent["ua"])
+            meta[key] = agent
+
+        for key, fut in futures.items():
+            try:
+                checks[key] = fut.result()
+            except Exception as exc:
+                checks[key] = {
+                    "http_code": 0,
+                    "size_bytes": 0,
+                    "ttfb_ms": 0,
+                    "text_len": 0,
+                    "links_count": 0,
+                    "has_h1": False,
+                    "has_title": False,
+                    "access_state": "error",
+                    "access_match": None,
+                    "error": str(exc),
+                    "elapsed_ms": 0,
+                }
 
     return json_response({
         "ok": True,
@@ -259,7 +274,7 @@ def _handle_request(params: dict) -> dict:
     })
 
 
-class Handler(BaseHTTPRequestHandler):class Handler(BaseHTTPRequestHandler):
+class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         params = {k: v[0] for k, v in parse_qs(parsed.query).items()}

@@ -42,15 +42,36 @@ export async function POST(req: Request) {
       : `${engineUrl}?${query.toString()}`;
 
     const upstream = await fetch(target, { method: 'GET' });
-    const text = await upstream.text();
+    const raw = await upstream.text();
+    const contentType = upstream.headers.get('content-type') || '';
 
-    return new NextResponse(text, {
-      status: upstream.status,
-      headers: {
-        'Content-Type':
-          upstream.headers.get('content-type') || 'application/json'
-      }
-    });
+    if (!raw) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Пустой ответ от сервиса',
+          status: upstream.status || 502,
+        },
+        { status: 502 }
+      );
+    }
+
+    if (contentType.includes('application/json')) {
+      return new NextResponse(raw, {
+        status: upstream.status || 502,
+        headers: { 'Content-Type': contentType },
+      });
+    }
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Ошибка сервиса (${upstream.status || 502})`,
+        status: upstream.status || 502,
+        raw: raw.slice(0, 500),
+      },
+      { status: 502 }
+    );
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
