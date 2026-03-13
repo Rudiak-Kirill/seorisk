@@ -1,8 +1,29 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getUser } from '@/lib/db/queries';
 import { getSiteUrl } from '@/lib/site-url';
+
+const siteUrl = getSiteUrl();
+
+export const metadata: Metadata = {
+  title: 'SEO для CEO — проверка рендеринга и индексируемости | SEORISK.RU',
+  description:
+    'Проверьте как ваш сайт видят браузер, Googlebot, Яндекс и LLM-боты. Бесплатные инструменты: SSR Check, LLM Check, Index Check. Найдите причину почему сайт не индексируется за 30 секунд.',
+  alternates: {
+    canonical: `${siteUrl}/`,
+  },
+  openGraph: {
+    title: 'SEO для CEO — проверка рендеринга и индексируемости',
+    description:
+      'Бесплатно проверьте как боты видят вашу страницу. Googlebot, Яндекс, ChatGPT, Claude — всё в одном экране.',
+    url: `${siteUrl}/`,
+    siteName: 'SEORISK.RU',
+    locale: 'ru_RU',
+    type: 'website',
+  },
+};
 
 const tools = [
   {
@@ -24,7 +45,6 @@ const tools = [
 
 export default async function HomePage() {
   const user = await getUser();
-  const siteUrl = getSiteUrl();
   const toolsJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'ItemList',
@@ -51,18 +71,19 @@ export default async function HomePage() {
             type="application/ld+json"
             dangerouslySetInnerHTML={{ __html: JSON.stringify(toolsJsonLd) }}
           />
+
           <div className="lg:grid lg:grid-cols-12 lg:gap-8">
             <div className="sm:text-center md:mx-auto md:max-w-2xl lg:col-span-7 lg:text-left">
               <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl md:text-6xl">
-                SEORISK
-                <span className="block text-orange-500">
-                  Проверка рендеринга и индексируемости
-                </span>
+                SEO для CEO — проверка рендеринга и
+                <span className="block text-orange-500"> индексируемости</span>
               </h1>
+
               <p className="mt-3 text-base text-gray-700 sm:mt-5 sm:text-xl lg:text-lg xl:text-xl">
-                Проверяйте, что видят браузер, поисковые и LLM-боты, и не теряется ли
-                страница для индексации из-за `robots.txt`, `meta robots` или sitemap.
+                Проверьте, как ваш сайт видят браузер, Googlebot, Яндекс и LLM-боты.
+                Найдите причину, почему страница не индексируется, за один экран.
               </p>
+
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center lg:justify-start">
                 <Button asChild size="lg" className="rounded-full">
                   <Link href="/tools/ssr-check">

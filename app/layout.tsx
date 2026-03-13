@@ -7,8 +7,12 @@ import Script from 'next/script';
 import { MetrikaHit } from '@/components/metrika-hit';
 import LogoMark from '@/components/logo-mark';
 import { getUser } from '@/lib/db/queries';
+import { getSiteUrl } from '@/lib/site-url';
+
+const siteUrl = getSiteUrl();
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: 'SEORISK.RU',
   description:
     'Проверка URL на индексируемость и расхождения между браузером, SEO- и LLM-ботами.',
