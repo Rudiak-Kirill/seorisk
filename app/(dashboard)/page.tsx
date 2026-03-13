@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getUser } from '@/lib/db/queries';
+import { getSiteUrl } from '@/lib/site-url';
 
 const tools = [
   {
@@ -23,11 +24,33 @@ const tools = [
 
 export default async function HomePage() {
   const user = await getUser();
+  const siteUrl = getSiteUrl();
+  const toolsJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'SEORISK tools',
+    itemListElement: tools.map((tool, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      item: {
+        '@type': 'SoftwareApplication',
+        name: tool.title,
+        description: tool.description,
+        applicationCategory: 'BusinessApplication',
+        operatingSystem: 'Web',
+        url: `${siteUrl}${tool.href}`,
+      },
+    })),
+  };
 
   return (
     <main>
       <section className="py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(toolsJsonLd) }}
+          />
           <div className="lg:grid lg:grid-cols-12 lg:gap-8">
             <div className="sm:text-center md:mx-auto md:max-w-2xl lg:col-span-7 lg:text-left">
               <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl md:text-6xl">
