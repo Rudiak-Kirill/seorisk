@@ -4,8 +4,8 @@ import type { Metadata, Viewport } from 'next';
 import { Manrope } from 'next/font/google';
 import Link from 'next/link';
 import Script from 'next/script';
-import { CircleIcon } from 'lucide-react';
 import { MetrikaHit } from '@/components/metrika-hit';
+import LogoMark from '@/components/logo-mark';
 import { getUser } from '@/lib/db/queries';
 
 export const metadata: Metadata = {
@@ -68,7 +68,7 @@ ym(${METRIKA_ID}, 'init', {
         <header className="border-b border-gray-200">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
             <Link href="/" className="flex items-center">
-              <CircleIcon className="h-6 w-6 text-orange-500" />
+              <LogoMark className="h-6 w-6" />
               <span className="ml-2 text-xl font-semibold text-gray-900">SEORISK.RU</span>
             </Link>
 
