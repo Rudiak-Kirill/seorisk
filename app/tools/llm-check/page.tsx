@@ -520,7 +520,7 @@ export default function LlmCheckPage() {
                     </div>
 
                     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                      <div className="text-sm font-semibold text-gray-900">llm.txt</div>
+                      <div className="text-sm font-semibold text-gray-900">llms.txt</div>
                       <div
                         className={`mt-3 break-words text-2xl font-semibold ${aiCardClass(
                           data.ai_readiness.cards.llm_txt.status
@@ -674,7 +674,7 @@ export default function LlmCheckPage() {
                   {data.ai_readiness && (
                     <section className="mt-6 grid gap-6 lg:grid-cols-3">
                       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                        <h2 className="text-lg font-semibold text-gray-900">llm.txt</h2>
+                        <h2 className="text-lg font-semibold text-gray-900">llms.txt</h2>
                         <div className="mt-3 space-y-3 text-sm text-gray-600">
                           <div>
                             <div className="font-medium text-gray-900">URL</div>

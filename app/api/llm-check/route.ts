@@ -452,7 +452,7 @@ function buildLlmTxtCard(
     return {
       status: 'warn',
       value: 'Нет',
-      description: 'Файл /llm.txt не найден.',
+      description: 'Файл /llms.txt не найден.',
     };
   }
 
@@ -468,14 +468,14 @@ function buildLlmTxtCard(
     return {
       status: 'warn',
       value: 'Пустой',
-      description: 'Файл найден, но выглядит пустым или нечитаемым.',
+      description: 'Файл /llms.txt найден, но выглядит пустым или нечитаемым.',
     };
   }
 
   return {
     status: 'ok',
     value: 'Найден',
-    description: 'Файл /llm.txt найден и выглядит корректно.',
+    description: 'Файл /llms.txt найден и выглядит корректно.',
   };
 }
 
@@ -608,7 +608,7 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
     }
   })();
 
-  const llmTxtUrl = siteRoot ? `${siteRoot}/llm.txt` : '';
+  const llmTxtUrl = siteRoot ? `${siteRoot}/llms.txt` : '';
   const robotsUrl = siteRoot ? `${siteRoot}/robots.txt` : '';
   const [llmTxt, robotsTxt] = await Promise.all([
     llmTxtUrl ? fetchText(llmTxtUrl) : Promise.resolve({ ok: false, status: 0, text: '' }),
