@@ -1,0 +1,703 @@
+import { NextResponse } from 'next/server';
+
+export const runtime = 'nodejs';
+
+type Phase = 'quick' | 'full';
+type Verdict = 'ok' | 'warn' | 'fail';
+type Severity = 'critical' | 'warn' | 'improve';
+type TtfbState = 'fast' | 'normal' | 'slow' | 'critical' | 'unknown';
+type MetricState = 'good' | 'slow' | 'critical' | 'problem' | 'unknown';
+type CacheState = 'good' | 'partial' | 'none' | 'unknown';
+
+type PageSpeedMetrics = {
+  performance_score: number | null;
+  fcp_ms: number | null;
+  lcp_ms: number | null;
+  cls: number | null;
+  tbt_ms: number | null;
+  speed_index_ms: number | null;
+};
+
+type Opportunity = {
+  id: string;
+  title: string;
+  savings_ms: number | null;
+  savings_bytes: number | null;
+};
+
+type ProblemCard = {
+  severity: Severity;
+  title: string;
+  action: string;
+  reason: string;
+};
+
+type QuickDetails = {
+  http_status: number;
+  final_url: string;
+  ttfb_ms: number | null;
+  ttfb_state: TtfbState;
+  cache_state: CacheState;
+  cache_control: string | null;
+  content_encoding: string | null;
+  cms: string;
+  cdn: string | null;
+};
+
+type FullDetails = {
+  mobile: PageSpeedMetrics | null;
+  desktop: PageSpeedMetrics | null;
+  mobile_gap: number | null;
+  page_weight_bytes: number | null;
+  opportunities: Opportunity[];
+  google_fonts_detected: boolean;
+  psi_available: boolean;
+  psi_error: string | null;
+};
+
+type SpeedCheckResponse = {
+  ok: boolean;
+  phase: Phase;
+  checked_at: string;
+  input_url: string;
+  final_url: string;
+  verdict: Verdict;
+  verdict_title: string;
+  verdict_summary: string;
+  loading_text?: string | null;
+  problem_cards: ProblemCard[];
+  details: {
+    quick: QuickDetails;
+    full: FullDetails;
+  };
+};
+
+type FetchSnapshot = {
+  ok: boolean;
+  status: number;
+  final_url: string;
+  html: string;
+  headers: Headers;
+  ttfb_ms: number | null;
+};
+
+type PsiResult = {
+  ok: boolean;
+  metrics: PageSpeedMetrics | null;
+  opportunities: Opportunity[];
+  page_weight_bytes: number | null;
+  error: string | null;
+};
+
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+function toNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function formatBytes(bytes: number | null) {
+  if (!bytes || bytes <= 0) return '—';
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} КБ`;
+  return `${bytes} Б`;
+}
+
+function normalizeUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+async function fetchPage(url: string): Promise<FetchSnapshot> {
+  const started = process.hrtime.bigint();
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        'User-Agent': BROWSER_UA,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+      cache: 'no-store',
+    });
+    const ttfb_ms = Number((Number(process.hrtime.bigint() - started) / 1_000_000).toFixed(0));
+    const html = await response.text();
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      final_url: response.url || url,
+      html,
+      headers: response.headers,
+      ttfb_ms,
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      final_url: url,
+      html: '',
+      headers: new Headers(),
+      ttfb_ms: null,
+    };
+  }
+}
+
+function detectCms(html: string, headers: Headers) {
+  const server = (headers.get('server') || '').toLowerCase();
+  const poweredBy = (headers.get('x-powered-by') || '').toLowerCase();
+  const htmlLower = html.toLowerCase();
+
+  if (
+    /bitrix/i.test(server) ||
+    /bitrix/i.test(poweredBy) ||
+    htmlLower.includes('/bitrix/') ||
+    htmlLower.includes('bx.setcsslist') ||
+    headers.has('x-powered-cms')
+  ) {
+    return 'Битрикс';
+  }
+
+  if (
+    htmlLower.includes('wp-content') ||
+    htmlLower.includes('wp-includes') ||
+    htmlLower.includes('content="wordpress') ||
+    headers.has('x-pingback')
+  ) {
+    return 'WordPress';
+  }
+
+  if (
+    /next\.js/i.test(poweredBy) ||
+    htmlLower.includes('/_next/static/') ||
+    htmlLower.includes('__next_data__')
+  ) {
+    return 'Next.js';
+  }
+
+  if (
+    htmlLower.includes('tilda') ||
+    htmlLower.includes('tildacdn') ||
+    htmlLower.includes('t-records')
+  ) {
+    return 'Тильда';
+  }
+
+  if (
+    /shopify/i.test(server) ||
+    headers.has('x-shopify-stage') ||
+    htmlLower.includes('cdn.shopify.com')
+  ) {
+    return 'Shopify';
+  }
+
+  if (
+    (htmlLower.includes('id="root"') || htmlLower.includes("id='root'") || htmlLower.includes('id="app"')) &&
+    htmlLower.includes('<script')
+  ) {
+    return 'SPA';
+  }
+
+  return 'Другой';
+}
+
+function detectCdn(headers: Headers) {
+  const server = (headers.get('server') || '').toLowerCase();
+  const via = (headers.get('via') || '').toLowerCase();
+  const xCache = (headers.get('x-cache') || '').toLowerCase();
+
+  if (headers.has('cf-ray') || server.includes('cloudflare')) return 'Cloudflare';
+  if (headers.has('x-vercel-cache') || server.includes('vercel')) return 'Vercel';
+  if (headers.has('x-amz-cf-id')) return 'CloudFront';
+  if (headers.has('x-served-by') || server.includes('fastly') || via.includes('fastly')) {
+    return 'Fastly';
+  }
+  if (server.includes('qrator')) return 'Qrator';
+  if (server.includes('akamai') || headers.has('akamai-grn')) return 'Akamai';
+  if (xCache.includes('hit') || via.includes('cdn')) return 'CDN';
+
+  return null;
+}
+
+function detectCacheState(headers: Headers): CacheState {
+  const cacheControl = (headers.get('cache-control') || '').toLowerCase();
+  const pragma = (headers.get('pragma') || '').toLowerCase();
+  const xCache = (headers.get('x-cache') || '').toLowerCase();
+  const vercelCache = (headers.get('x-vercel-cache') || '').toLowerCase();
+  const cfCache = (headers.get('cf-cache-status') || '').toLowerCase();
+  const hasValidator = headers.has('etag') || headers.has('last-modified');
+
+  const hasHit = xCache.includes('hit') || vercelCache === 'hit' || cfCache === 'hit';
+  const maxAge = cacheControl.match(/max-age=(\d+)/)?.[1];
+  const maxAgeValue = maxAge ? Number(maxAge) : 0;
+
+  if (hasHit || (cacheControl.includes('public') && maxAgeValue > 0)) {
+    return 'good';
+  }
+
+  if (
+    cacheControl.includes('no-store') ||
+    cacheControl.includes('no-cache') ||
+    pragma.includes('no-cache') ||
+    !cacheControl
+  ) {
+    return hasValidator ? 'partial' : 'none';
+  }
+
+  if (hasValidator) {
+    return 'partial';
+  }
+
+  return 'unknown';
+}
+
+function ttfbState(ttfb: number | null): TtfbState {
+  if (!ttfb) return 'unknown';
+  if (ttfb > 2000) return 'critical';
+  if (ttfb > 800) return 'slow';
+  if (ttfb >= 200) return 'normal';
+  return 'fast';
+}
+
+function lcpState(value: number | null): MetricState {
+  if (value === null) return 'unknown';
+  if (value > 4000) return 'critical';
+  if (value >= 2500) return 'slow';
+  return 'good';
+}
+
+function clsState(value: number | null): MetricState {
+  if (value === null) return 'unknown';
+  return value > 0.1 ? 'problem' : 'good';
+}
+
+function tbtState(value: number | null): MetricState {
+  if (value === null) return 'unknown';
+  return value > 300 ? 'problem' : value < 200 ? 'good' : 'slow';
+}
+
+async function fetchPsi(strategy: 'mobile' | 'desktop', url: string): Promise<PsiResult> {
+  const key = process.env.PAGESPEED_API_KEY;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+
+  try {
+    const endpoint = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
+    endpoint.searchParams.set('url', url);
+    endpoint.searchParams.set('strategy', strategy);
+    endpoint.searchParams.set('category', 'performance');
+    if (key) endpoint.searchParams.set('key', key);
+
+    const response = await fetch(endpoint.toString(), {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        metrics: null,
+        opportunities: [],
+        page_weight_bytes: null,
+        error: data?.error?.message || `PSI ${strategy} returned ${response.status}`,
+      };
+    }
+
+    const audits = data?.lighthouseResult?.audits || {};
+    const performanceScore = toNumber(data?.lighthouseResult?.categories?.performance?.score);
+    const resourceSummary = audits['resource-summary']?.details?.items;
+    const totalBytes = Array.isArray(resourceSummary)
+      ? resourceSummary.reduce((sum: number, item: any) => sum + (Number(item?.transferSize) || 0), 0)
+      : toNumber(audits['total-byte-weight']?.numericValue);
+
+    const opportunityIds = [
+      'modern-image-formats',
+      'uses-optimized-images',
+      'offscreen-images',
+      'render-blocking-resources',
+      'unused-javascript',
+      'unused-css-rules',
+      'font-display',
+    ];
+
+    const opportunities = opportunityIds
+      .map((id) => {
+        const audit = audits[id];
+        if (!audit) return null;
+
+        const savingsMs = toNumber(audit?.details?.overallSavingsMs) ?? toNumber(audit?.numericValue);
+        const savingsBytes = toNumber(audit?.details?.overallSavingsBytes);
+
+        if ((savingsMs || 0) <= 0 && (savingsBytes || 0) <= 0 && audit.score !== 0) {
+          return null;
+        }
+
+        return {
+          id,
+          title: audit.title || id,
+          savings_ms: savingsMs,
+          savings_bytes: savingsBytes,
+        } satisfies Opportunity;
+      })
+      .filter(Boolean) as Opportunity[];
+
+    return {
+      ok: true,
+      metrics: {
+        performance_score: performanceScore !== null ? Math.round(performanceScore * 100) : null,
+        fcp_ms: toNumber(audits['first-contentful-paint']?.numericValue),
+        lcp_ms: toNumber(audits['largest-contentful-paint']?.numericValue),
+        cls: toNumber(audits['cumulative-layout-shift']?.numericValue),
+        tbt_ms: toNumber(audits['total-blocking-time']?.numericValue),
+        speed_index_ms: toNumber(audits['speed-index']?.numericValue),
+      },
+      opportunities,
+      page_weight_bytes: totalBytes,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      metrics: null,
+      opportunities: [],
+      page_weight_bytes: null,
+      error: error instanceof Error ? error.message : 'PSI request failed',
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function hasOpportunity(opportunities: Opportunity[], ids: string[]) {
+  return opportunities.some((item) => ids.includes(item.id));
+}
+
+function getSeverityRank(severity: Severity) {
+  if (severity === 'critical') return 0;
+  if (severity === 'warn') return 1;
+  return 2;
+}
+
+function pushProblem(cards: ProblemCard[], card: ProblemCard) {
+  if (!cards.some((item) => item.title === card.title && item.action === card.action)) {
+    cards.push(card);
+  }
+}
+
+function buildProblemCards(
+  quick: QuickDetails,
+  full: FullDetails
+): { verdict: Verdict; verdict_title: string; verdict_summary: string; problem_cards: ProblemCard[] } {
+  const cards: ProblemCard[] = [];
+  const mobileLcp = lcpState(full.mobile?.lcp_ms ?? null);
+  const mobileCls = clsState(full.mobile?.cls ?? null);
+  const mobileTbt = tbtState(full.mobile?.tbt_ms ?? null);
+  const noCache = quick.cache_state === 'none';
+  const partialCache = quick.cache_state === 'partial';
+  const noCdn = !quick.cdn;
+  const mobileGap = full.mobile_gap ?? 0;
+  const hasImageIssue = hasOpportunity(full.opportunities, [
+    'modern-image-formats',
+    'uses-optimized-images',
+    'offscreen-images',
+  ]);
+  const hasJsBlocking = hasOpportunity(full.opportunities, [
+    'render-blocking-resources',
+    'unused-javascript',
+    'unused-css-rules',
+  ]);
+  const hasFontsIssue = hasOpportunity(full.opportunities, ['font-display']);
+
+  if (quick.ttfb_state === 'slow' || quick.ttfb_state === 'critical') {
+    if (noCache) {
+      if (quick.cms === 'Битрикс') {
+        pushProblem(cards, {
+          severity: 'critical',
+          title: 'Сервер отвечает медленно',
+          action: 'Включите Битрикс Композит в настройках главного модуля.',
+          reason: 'Медленный TTFB и нет кеширования.',
+        });
+      } else if (quick.cms === 'WordPress') {
+        pushProblem(cards, {
+          severity: 'critical',
+          title: 'Сервер отвечает медленно',
+          action: 'Установите кеш-плагин: WP Rocket или LiteSpeed Cache.',
+          reason: 'Медленный TTFB и нет кеширования.',
+        });
+      } else if (quick.cms === 'Next.js') {
+        pushProblem(cards, {
+          severity: 'critical',
+          title: 'Страница не кешируется',
+          action: 'Настройте Cache-Control заголовки или подключите CDN.',
+          reason: 'Медленный TTFB и нет кеширования.',
+        });
+      } else if (quick.cms === 'Тильда') {
+        pushProblem(cards, {
+          severity: 'warn',
+          title: 'Сервер отвечает медленно',
+          action: 'Для быстрого сайта рассмотрите переезд на другую платформу.',
+          reason: 'Медленный TTFB и платформа почти не управляет кешем.',
+        });
+      } else {
+        pushProblem(cards, {
+          severity: 'critical',
+          title: 'Страница не кешируется',
+          action: 'Настройте кеширование на сервере или через CDN.',
+          reason: 'Медленный TTFB и нет кеширования.',
+        });
+      }
+    } else {
+      pushProblem(cards, {
+        severity: 'critical',
+        title: 'Сервер отвечает медленно',
+        action: 'Кеш уже настроен — проблема в коде, базе данных или сервере. Нужна задача разработчику.',
+        reason: 'TTFB остаётся медленным даже с кешем.',
+      });
+    }
+  } else if (quick.ttfb_state === 'normal' && noCache) {
+    pushProblem(cards, {
+      severity: 'warn',
+      title: 'Страница не кешируется',
+      action: 'Сервер быстрый — добавьте кеширование для стабильности под нагрузкой.',
+      reason: 'TTFB в норме, но кеширование отсутствует.',
+    });
+  } else if (partialCache) {
+    pushProblem(cards, {
+      severity: 'improve',
+      title: 'Кеш настроен частично',
+      action: 'Добавьте полноценный Cache-Control с max-age или CDN-кеш.',
+      reason: 'Есть только ETag/Last-Modified без явного max-age.',
+    });
+  }
+
+  if ((mobileLcp === 'slow' || mobileLcp === 'critical') && hasImageIssue) {
+    pushProblem(cards, {
+      severity: mobileLcp === 'critical' ? 'critical' : 'warn',
+      title: 'Изображения замедляют загрузку',
+      action: 'Конвертируйте изображения в WebP или AVIF — это обычно снижает вес страницы на 30–50%.',
+      reason: 'LCP медленный и Lighthouse видит проблемы по изображениям.',
+    });
+  }
+
+  if ((mobileLcp === 'slow' || mobileLcp === 'critical') && hasJsBlocking) {
+    pushProblem(cards, {
+      severity: mobileLcp === 'critical' ? 'critical' : 'warn',
+      title: 'JavaScript блокирует загрузку',
+      action: 'Добавьте defer/async и разберите тяжёлые JS/CSS ресурсы. Это задача разработчику.',
+      reason: 'LCP медленный и есть render-blocking ресурсы.',
+    });
+  }
+
+  if (mobileTbt === 'problem' && quick.cms === 'WordPress') {
+    pushProblem(cards, {
+      severity: 'warn',
+      title: 'Тяжёлые плагины тормозят сайт',
+      action: 'Отключите неиспользуемые плагины и проверьте нагрузку на страницу.',
+      reason: 'Высокий TBT на WordPress.',
+    });
+  }
+
+  if (hasFontsIssue) {
+    pushProblem(cards, {
+      severity: 'improve',
+      title: 'Внешние шрифты замедляют загрузку',
+      action: 'Перенесите шрифты на свой сервер или сократите набор шрифтов.',
+      reason: 'Найдены проблемы со шрифтами.',
+    });
+  }
+
+  if (noCdn && (quick.ttfb_ms || 0) > 500) {
+    pushProblem(cards, {
+      severity: 'improve',
+      title: 'CDN не подключён',
+      action: 'Добавьте CDN для ускорения сайта в регионах России.',
+      reason: 'TTFB выше 500 мс и CDN не определяется.',
+    });
+  }
+
+  if (mobileGap > 30) {
+    pushProblem(cards, {
+      severity: 'warn',
+      title: 'Мобильная версия намного хуже десктопа',
+      action: 'Нужна отдельная задача разработчику на мобильную оптимизацию.',
+      reason: `Разрыв между desktop и mobile: ${mobileGap} пунктов.`,
+    });
+  }
+
+  if (mobileCls === 'problem') {
+    pushProblem(cards, {
+      severity: 'warn',
+      title: 'Элементы страницы прыгают при загрузке',
+      action: 'Укажите размеры изображений и блоков. Это задача разработчику.',
+      reason: 'CLS выше 0,1.',
+    });
+  }
+
+  cards.sort((left, right) => getSeverityRank(left.severity) - getSeverityRank(right.severity));
+
+  const hasCritical = cards.some((item) => item.severity === 'critical');
+  const hasWarn = cards.some((item) => item.severity === 'warn');
+
+  if (hasCritical) {
+    return {
+      verdict: 'fail',
+      verdict_title: 'Есть проблемы со скоростью',
+      verdict_summary: 'Сначала исправьте сервер, кеширование и крупные блокирующие узкие места.',
+      problem_cards: cards,
+    };
+  }
+
+  if (hasWarn || cards.length > 0) {
+    return {
+      verdict: 'warn',
+      verdict_title: 'Скорость средняя — есть что улучшить',
+      verdict_summary: 'Критичных проблем нет, но часть узких мест уже влияет на загрузку.',
+      problem_cards: cards,
+    };
+  }
+
+  return {
+    verdict: 'ok',
+    verdict_title: 'Сайт загружается быстро',
+    verdict_summary: 'Явных проблем со скоростью не обнаружено.',
+    problem_cards: [],
+  };
+}
+
+function buildQuickPayload(inputUrl: string, snapshot: FetchSnapshot): SpeedCheckResponse {
+  const quick: QuickDetails = {
+    http_status: snapshot.status,
+    final_url: snapshot.final_url,
+    ttfb_ms: snapshot.ttfb_ms,
+    ttfb_state: ttfbState(snapshot.ttfb_ms),
+    cache_state: detectCacheState(snapshot.headers),
+    cache_control: snapshot.headers.get('cache-control'),
+    content_encoding: snapshot.headers.get('content-encoding'),
+    cms: detectCms(snapshot.html, snapshot.headers),
+    cdn: detectCdn(snapshot.headers),
+  };
+
+  const summary = buildProblemCards(quick, {
+    mobile: null,
+    desktop: null,
+    mobile_gap: null,
+    page_weight_bytes: null,
+    opportunities: [],
+    google_fonts_detected: /fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(snapshot.html),
+    psi_available: false,
+    psi_error: null,
+  });
+
+  return {
+    ok: true,
+    phase: 'quick',
+    checked_at: new Date().toISOString(),
+    input_url: inputUrl,
+    final_url: snapshot.final_url,
+    verdict: summary.verdict,
+    verdict_title: summary.verdict_title,
+    verdict_summary: summary.verdict_summary,
+    loading_text: 'Запускаем полный анализ...',
+    problem_cards: summary.problem_cards,
+    details: {
+      quick,
+      full: {
+        mobile: null,
+        desktop: null,
+        mobile_gap: null,
+        page_weight_bytes: null,
+        opportunities: [],
+        google_fonts_detected: /fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(snapshot.html),
+        psi_available: false,
+        psi_error: null,
+      },
+    },
+  };
+}
+
+async function buildFullPayload(inputUrl: string, snapshot: FetchSnapshot): Promise<SpeedCheckResponse> {
+  const quick = buildQuickPayload(inputUrl, snapshot).details.quick;
+  const googleFontsDetected = /fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(snapshot.html);
+
+  const [mobile, desktop] = await Promise.all([
+    fetchPsi('mobile', snapshot.final_url),
+    fetchPsi('desktop', snapshot.final_url),
+  ]);
+
+  const full: FullDetails = {
+    mobile: mobile.metrics,
+    desktop: desktop.metrics,
+    mobile_gap:
+      mobile.metrics &&
+      desktop.metrics &&
+      mobile.metrics.performance_score !== null &&
+      desktop.metrics.performance_score !== null
+        ? desktop.metrics.performance_score - mobile.metrics.performance_score
+        : null,
+    page_weight_bytes: mobile.page_weight_bytes ?? desktop.page_weight_bytes ?? null,
+    opportunities: [...mobile.opportunities, ...desktop.opportunities].filter(
+      (item, index, array) => array.findIndex((other) => other.id === item.id) === index
+    ),
+    google_fonts_detected: googleFontsDetected,
+    psi_available: mobile.ok || desktop.ok,
+    psi_error: mobile.error || desktop.error || null,
+  };
+
+  const summary = buildProblemCards(quick, full);
+
+  return {
+    ok: true,
+    phase: 'full',
+    checked_at: new Date().toISOString(),
+    input_url: inputUrl,
+    final_url: snapshot.final_url,
+    verdict: summary.verdict,
+    verdict_title: summary.verdict_title,
+    verdict_summary: summary.verdict_summary,
+    loading_text: null,
+    problem_cards: summary.problem_cards,
+    details: {
+      quick,
+      full,
+    },
+  };
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json()) as { url?: string; phase?: Phase };
+    const inputUrl = normalizeUrl((body.url || '').trim());
+    const phase: Phase = body.phase === 'full' ? 'full' : 'quick';
+
+    if (!inputUrl) {
+      return NextResponse.json({ ok: false, error: 'Неверный URL' }, { status: 400 });
+    }
+
+    const snapshot = await fetchPage(inputUrl);
+
+    if (!snapshot.status) {
+      return NextResponse.json({ ok: false, error: 'Не удалось получить ответ от страницы' }, { status: 502 });
+    }
+
+    const payload =
+      phase === 'full'
+        ? await buildFullPayload(inputUrl, snapshot)
+        : buildQuickPayload(inputUrl, snapshot);
+
+    return NextResponse.json(payload);
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : 'Ошибка сервиса' },
+      { status: 500 }
+    );
+  }
+}
