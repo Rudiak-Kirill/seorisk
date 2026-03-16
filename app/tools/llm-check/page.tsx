@@ -37,6 +37,47 @@ type Snapshot = {
   access_state?: string | null;
 };
 
+type AgentStatus = 'ok' | 'warn' | 'fail';
+
+type AgentResult = {
+  key: string;
+  label: string;
+  snap: Snapshot;
+  status: AgentStatus;
+  badge: string;
+  summary: string;
+};
+
+type AiReadinessCard = {
+  status: AgentStatus;
+  value: string;
+  description: string;
+};
+
+type AiReadiness = {
+  verdict: AgentStatus;
+  summary: string;
+  cards: {
+    availability: AiReadinessCard;
+    llm_txt: AiReadinessCard;
+    schema: AiReadinessCard;
+    faq: AiReadinessCard;
+    content: AiReadinessCard;
+  };
+  details: {
+    llm_txt_url: string;
+    llm_txt_status: number;
+    llm_txt_conflict_rule: string | null;
+    llm_txt_conflict_agent: string | null;
+    schema_types: string[];
+    faq_signals: string[];
+    headings: { h1: number; h2: number; h3: number };
+    text_to_html_ratio: number;
+    word_count: number;
+    hidden_main_content: boolean;
+  };
+};
+
 type LlmResponse = {
   ok: boolean;
   url: string;
@@ -48,18 +89,8 @@ type LlmResponse = {
   agents: {
     [key: string]: { key: string; label: string; ua: string };
   };
+  ai_readiness?: AiReadiness;
   error?: string;
-};
-
-type AgentStatus = 'ok' | 'warn' | 'fail';
-
-type AgentResult = {
-  key: string;
-  label: string;
-  snap: Snapshot;
-  status: AgentStatus;
-  badge: string;
-  summary: string;
 };
 
 const LLM_FAQ: FaqItem[] = [
@@ -81,7 +112,7 @@ const LLM_FAQ: FaqItem[] = [
   {
     question: 'Когда LLM Check особенно полезен?',
     answer:
-      'Когда важно понять, может ли контент использоваться AI-системами.\nКогда есть подозрение, что часть ботов получает ошибку или пустой ответ.\nКогда хочется проверить готовность сайта к AI-поиску и LLM visibility.',
+      'Когда важно понять, может ли контент использоваться AI-системами. Когда есть подозрение, что часть ботов получает ошибку или пустой ответ. Когда нужно проверить готовность сайта к AI-поиску и LLM visibility.',
   },
   {
     question: 'Какой результат даёт LLM Check?',
@@ -89,9 +120,9 @@ const LLM_FAQ: FaqItem[] = [
       'Позволяет увидеть, какие AI-боты получают страницу нормально, а какие — нет. Помогает быстро найти технические ограничения, которые могут снижать видимость сайта для LLM-платформ.',
   },
   {
-    question: 'Какие вопросы помогает ответить LLM Check?',
+    question: 'На какие вопросы помогает ответить LLM Check?',
     answer:
-      'Доступна ли страница для GPTBot, ClaudeBot, PerplexityBot и других?\nНе блокируются ли AI-боты сервером, CDN или правилами защиты?\nПолучают ли они текст и основные элементы страницы?\nЕсть ли расхождения между браузером и AI-ботами?',
+      'Доступна ли страница для GPTBot, ClaudeBot, PerplexityBot и других? Не блокируются ли AI-боты сервером, CDN или правилами защиты? Получают ли они текст и основные элементы страницы? Есть ли расхождения между браузером и AI-ботами?',
   },
   {
     question: 'Что не делает LLM Check?',
@@ -122,7 +153,7 @@ function getBotSummary(browser: Snapshot, snap: Snapshot) {
         status: 'fail' as const,
         badge: String(snap.http_code),
         summary:
-          'Доступ для бота ограничен. Проверьте правила защиты, CDN и фильтрацию по user-agent.',
+          'Доступ для бота ограничен. Проверьте защиту, CDN и фильтрацию по user-agent.',
       };
     }
 
@@ -183,7 +214,7 @@ function getBannerConfig(failCount: number, warnCount: number) {
       description:
         failCount === 1
           ? 'Один AI-бот не может получить страницу.'
-          : `${failCount} AI-бота не могут получить страницу.`,
+          : `${failCount} AI-ботов не могут получить страницу.`,
       icon: ShieldAlert,
       className: 'border-red-200 bg-red-50 text-red-800',
       iconClassName: 'text-red-600',
@@ -229,6 +260,22 @@ function formatSnapshot(snap: Snapshot) {
   };
 }
 
+function aiCardClass(status: AgentStatus) {
+  if (status === 'fail') return 'text-red-600';
+  if (status === 'warn') return 'text-amber-600';
+  return 'text-green-600';
+}
+
+function aiVerdictClass(verdict: AgentStatus) {
+  if (verdict === 'fail') return 'border-red-200 bg-red-50 text-red-700';
+  if (verdict === 'warn') return 'border-amber-200 bg-amber-50 text-amber-700';
+  return 'border-green-200 bg-green-50 text-green-700';
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
 export default function LlmCheckPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -263,7 +310,7 @@ export default function LlmCheckPage() {
 
   const banner = useMemo(
     () => getBannerConfig(failCount, warnCount),
-    [failCount, warnCount],
+    [failCount, warnCount]
   );
 
   const detailRows = useMemo(() => {
@@ -283,10 +330,7 @@ export default function LlmCheckPage() {
   const maxTextLen = useMemo(() => {
     if (!detailRows.length) return 0;
 
-    return detailRows.reduce(
-      (maxValue, row) => Math.max(maxValue, row.snap.text_len),
-      0,
-    );
+    return detailRows.reduce((maxValue, row) => Math.max(maxValue, row.snap.text_len), 0);
   }, [detailRows]);
 
   const onCheck = async () => {
@@ -322,12 +366,9 @@ export default function LlmCheckPage() {
   return (
     <div className="min-h-screen">
       <main className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
-        <h1 className="text-3xl font-semibold text-gray-900">
-          Доступна ли ваша страница для AI-ботов
-        </h1>
+        <h1 className="text-3xl font-semibold text-gray-900">Доступна ли ваша страница для AI-ботов</h1>
         <p className="mt-2 text-sm text-gray-500">
-          Проверьте, доступна ли ваша страница для GPTBot, ClaudeBot, PerplexityBot
-          и других AI-ботов.
+          Проверьте, доступна ли ваша страница для GPTBot, ClaudeBot, PerplexityBot и других AI-ботов.
         </p>
 
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -344,31 +385,25 @@ export default function LlmCheckPage() {
           </div>
 
           {error && (
-            <div className="mt-4 rounded-md bg-black px-4 py-3 text-sm text-white">
-              {error}
-            </div>
+            <div className="mt-4 rounded-md bg-black px-4 py-3 text-sm text-white">{error}</div>
           )}
 
           {data && (
             <>
-              <section
-                className={`mt-6 rounded-2xl border ${banner.className}`}
-              >
+              <section className={`mt-6 rounded-2xl border ${banner.className}`}>
                 <div className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-start gap-3">
                     <banner.icon className={`mt-0.5 h-6 w-6 shrink-0 ${banner.iconClassName}`} />
                     <div>
                       <div className="text-lg font-semibold">{banner.title}</div>
-                      <p className="mt-1 text-sm leading-6 text-current/90">
-                        {banner.description}
-                      </p>
+                      <p className="mt-1 text-sm leading-6 text-current/90">{banner.description}</p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
                     <span
                       className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
-                        'ok',
+                        'ok'
                       )}`}
                     >
                       {okCount} ботов — норма
@@ -376,7 +411,7 @@ export default function LlmCheckPage() {
                     {warnCount > 0 && (
                       <span
                         className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
-                          'warn',
+                          'warn'
                         )}`}
                       >
                         {warnCount} с расхождениями
@@ -385,7 +420,7 @@ export default function LlmCheckPage() {
                     {failCount > 0 && (
                       <span
                         className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
-                          'fail',
+                          'fail'
                         )}`}
                       >
                         {failCount} заблокирован
@@ -420,6 +455,90 @@ export default function LlmCheckPage() {
                 )}
               </section>
 
+              {data.ai_readiness && (
+                <section className="mt-6">
+                  <div
+                    className={`rounded-xl border px-4 py-3 text-sm font-medium ${aiVerdictClass(
+                      data.ai_readiness.verdict
+                    )}`}
+                  >
+                    {data.ai_readiness.summary}
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                      <div className="text-sm font-semibold text-gray-900">Доступность</div>
+                      <div
+                        className={`mt-3 break-words text-2xl font-semibold ${aiCardClass(
+                          data.ai_readiness.cards.availability.status
+                        )}`}
+                      >
+                        {data.ai_readiness.cards.availability.value}
+                      </div>
+                      <div className="mt-2 text-sm text-gray-600">
+                        {data.ai_readiness.cards.availability.description}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                      <div className="text-sm font-semibold text-gray-900">llm.txt</div>
+                      <div
+                        className={`mt-3 break-words text-2xl font-semibold ${aiCardClass(
+                          data.ai_readiness.cards.llm_txt.status
+                        )}`}
+                      >
+                        {data.ai_readiness.cards.llm_txt.value}
+                      </div>
+                      <div className="mt-2 text-sm text-gray-600">
+                        {data.ai_readiness.cards.llm_txt.description}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                      <div className="text-sm font-semibold text-gray-900">Schema.org</div>
+                      <div
+                        className={`mt-3 break-words text-2xl font-semibold ${aiCardClass(
+                          data.ai_readiness.cards.schema.status
+                        )}`}
+                      >
+                        {data.ai_readiness.cards.schema.value}
+                      </div>
+                      <div className="mt-2 text-sm text-gray-600">
+                        {data.ai_readiness.cards.schema.description}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                      <div className="text-sm font-semibold text-gray-900">FAQ-структура</div>
+                      <div
+                        className={`mt-3 break-words text-2xl font-semibold ${aiCardClass(
+                          data.ai_readiness.cards.faq.status
+                        )}`}
+                      >
+                        {data.ai_readiness.cards.faq.value}
+                      </div>
+                      <div className="mt-2 text-sm text-gray-600">
+                        {data.ai_readiness.cards.faq.description}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                      <div className="text-sm font-semibold text-gray-900">Контент для AI</div>
+                      <div
+                        className={`mt-3 break-words text-2xl font-semibold ${aiCardClass(
+                          data.ai_readiness.cards.content.status
+                        )}`}
+                      >
+                        {data.ai_readiness.cards.content.value}
+                      </div>
+                      <div className="mt-2 text-sm text-gray-600">
+                        {data.ai_readiness.cards.content.description}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              )}
+
               <div className="mt-6">
                 <Button
                   type="button"
@@ -437,78 +556,156 @@ export default function LlmCheckPage() {
               </div>
 
               {showDetails && (
-                <section className="mt-6 overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-gray-50 text-gray-600">
-                      <tr>
-                        <th className="px-4 py-3 text-left">Агент</th>
-                        <th className="px-4 py-3 text-left">HTTP</th>
-                        <th className="px-4 py-3 text-left">Текст</th>
-                        <th className="px-4 py-3 text-left">Ссылки</th>
-                        <th className="px-4 py-3 text-left">H1</th>
-                        <th className="px-4 py-3 text-left">Title</th>
-                        <th className="px-4 py-3 text-left">Access</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detailRows.map((row) => {
-                        const view = formatSnapshot(row.snap);
-                        const textClass =
-                          row.key !== 'browser' && row.snap.text_len < maxTextLen
-                            ? 'font-semibold text-red-600'
-                            : row.key === 'browser'
-                              ? 'text-gray-900'
-                              : 'font-semibold text-green-600';
-                        const linksClass =
-                          row.snap.links_count > 0
-                            ? 'font-semibold text-green-600'
-                            : 'font-semibold text-red-600';
-                        const boolTrueClass = 'font-semibold text-green-600';
-                        const boolFalseClass = 'font-semibold text-red-600';
-                        const accessClass =
-                          getAccessLabel(row.snap.access_state) === 'ok'
-                            ? 'font-semibold text-green-600'
-                            : 'font-semibold text-red-600';
+                <>
+                  <section className="mt-6 overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-600">
+                        <tr>
+                          <th className="px-4 py-3 text-left">Агент</th>
+                          <th className="px-4 py-3 text-left">HTTP</th>
+                          <th className="px-4 py-3 text-left">Текст</th>
+                          <th className="px-4 py-3 text-left">Ссылки</th>
+                          <th className="px-4 py-3 text-left">H1</th>
+                          <th className="px-4 py-3 text-left">Title</th>
+                          <th className="px-4 py-3 text-left">Access</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detailRows.map((row) => {
+                          const view = formatSnapshot(row.snap);
+                          const textClass =
+                            row.key !== 'browser' && row.snap.text_len < maxTextLen
+                              ? 'font-semibold text-red-600'
+                              : row.key === 'browser'
+                                ? 'text-gray-900'
+                                : 'font-semibold text-green-600';
+                          const linksClass =
+                            row.snap.links_count > 0
+                              ? 'font-semibold text-green-600'
+                              : 'font-semibold text-red-600';
+                          const boolTrueClass = 'font-semibold text-green-600';
+                          const boolFalseClass = 'font-semibold text-red-600';
+                          const accessClass =
+                            getAccessLabel(row.snap.access_state) === 'ok'
+                              ? 'font-semibold text-green-600'
+                              : 'font-semibold text-red-600';
 
-                        return (
-                          <tr key={row.key} className="border-t border-gray-100">
-                            <td className="px-4 py-3 font-medium text-gray-900">{row.label}</td>
-                            <td className="px-4 py-3">
-                              <span
-                                className={
-                                  row.snap.http_code === 200
-                                    ? 'font-semibold text-green-600'
-                                    : 'font-semibold text-red-600'
-                                }
-                              >
-                                {view.http}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={textClass}>{view.text}</span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={linksClass}>{view.links}</span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={row.snap.has_h1 ? boolTrueClass : boolFalseClass}>
-                                {view.h1}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={row.snap.has_title ? boolTrueClass : boolFalseClass}>
-                                {view.title}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={accessClass}>{view.access}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </section>
+                          return (
+                            <tr key={row.key} className="border-t border-gray-100">
+                              <td className="px-4 py-3 font-medium text-gray-900">{row.label}</td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className={
+                                    row.snap.http_code === 200
+                                      ? 'font-semibold text-green-600'
+                                      : 'font-semibold text-red-600'
+                                  }
+                                >
+                                  {view.http}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={textClass}>{view.text}</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={linksClass}>{view.links}</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={row.snap.has_h1 ? boolTrueClass : boolFalseClass}>
+                                  {view.h1}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className={row.snap.has_title ? boolTrueClass : boolFalseClass}
+                                >
+                                  {view.title}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={accessClass}>{view.access}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </section>
+
+                  {data.ai_readiness && (
+                    <section className="mt-6 grid gap-6 lg:grid-cols-3">
+                      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-900">llm.txt</h2>
+                        <div className="mt-3 space-y-3 text-sm text-gray-600">
+                          <div>
+                            <div className="font-medium text-gray-900">URL</div>
+                            <div className="break-all">{data.ai_readiness.details.llm_txt_url || '—'}</div>
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">HTTP status</div>
+                            <div>{data.ai_readiness.details.llm_txt_status || '—'}</div>
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">Конфликт robots.txt</div>
+                            <div>
+                              {data.ai_readiness.details.llm_txt_conflict_rule
+                                ? `${data.ai_readiness.details.llm_txt_conflict_agent || 'agent'}: ${data.ai_readiness.details.llm_txt_conflict_rule}`
+                                : 'Нет'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-900">Schema / FAQ</h2>
+                        <div className="mt-3 space-y-3 text-sm text-gray-600">
+                          <div>
+                            <div className="font-medium text-gray-900">Schema types</div>
+                            <div className="break-words">
+                              {data.ai_readiness.details.schema_types.length
+                                ? data.ai_readiness.details.schema_types.join(', ')
+                                : 'Не найдены'}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">FAQ сигналы</div>
+                            <div className="break-words">
+                              {data.ai_readiness.details.faq_signals.length
+                                ? data.ai_readiness.details.faq_signals.join(', ')
+                                : 'Не найдены'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-900">Контент</h2>
+                        <div className="mt-3 space-y-3 text-sm text-gray-600">
+                          <div>
+                            <div className="font-medium text-gray-900">Заголовки</div>
+                            <div>
+                              H1: {data.ai_readiness.details.headings.h1} · H2: {data.ai_readiness.details.headings.h2} · H3: {data.ai_readiness.details.headings.h3}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">Текст / HTML</div>
+                            <div>{formatPercent(data.ai_readiness.details.text_to_html_ratio)}</div>
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">Слов в тексте</div>
+                            <div>{data.ai_readiness.details.word_count}</div>
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900">Скрытый основной контент</div>
+                            <div>
+                              {data.ai_readiness.details.hidden_main_content ? 'Да' : 'Нет'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
             </>
           )}
