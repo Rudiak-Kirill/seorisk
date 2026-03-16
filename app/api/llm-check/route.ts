@@ -59,6 +59,30 @@ type SchemaPriorityDetails = {
   basic: { matched: string[]; total: number; tracked: string[] };
 };
 
+type ContentCheck = {
+  status: CardStatus;
+  value: string;
+  description: string;
+};
+
+type ContentDetails = {
+  passed_checks: number;
+  total_checks: number;
+  checks: {
+    h1: ContentCheck;
+    meta_description: ContentCheck;
+    heading_structure: ContentCheck;
+    content_volume: ContentCheck;
+    lists: ContentCheck;
+    tables: ContentCheck;
+    publication_date: ContentCheck;
+    author: ContentCheck;
+    open_graph: ContentCheck;
+    page_language: ContentCheck;
+    canonical: ContentCheck;
+  };
+};
+
 type AiReadiness = {
   verdict: CardStatus;
   summary: string;
@@ -81,6 +105,7 @@ type AiReadiness = {
     text_to_html_ratio: number;
     word_count: number;
     hidden_main_content: boolean;
+    content: ContentDetails;
   };
 };
 
@@ -88,6 +113,7 @@ type FetchTextResult = {
   ok: boolean;
   status: number;
   text: string;
+  final_url: string;
 };
 
 type RobotsGroup = {
@@ -173,12 +199,14 @@ async function fetchText(url: string): Promise<FetchTextResult> {
       ok: response.ok,
       status: response.status,
       text: await response.text(),
+      final_url: response.url,
     };
   } catch {
     return {
       ok: false,
       status: 0,
       text: '',
+      final_url: '',
     };
   }
 }
@@ -244,6 +272,160 @@ function extractSchemaTypes(html: string) {
   }
 
   return Array.from(types);
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractTagText(html: string, tag: string) {
+  const match = html.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return decodeHtmlEntities(stripHtml(match?.[1] || ''));
+}
+
+function extractMetaContent(html: string, attr: 'name' | 'property', value: string) {
+  const regex = new RegExp(
+    `<meta\\b[^>]*${attr}=["']${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*content=["']([^"']*)["'][^>]*>`,
+    'i'
+  );
+  const reverseRegex = new RegExp(
+    `<meta\\b[^>]*content=["']([^"']*)["'][^>]*${attr}=["']${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>`,
+    'i'
+  );
+
+  return decodeHtmlEntities(html.match(regex)?.[1] || html.match(reverseRegex)?.[1] || '');
+}
+
+function extractCanonicalUrl(html: string, baseUrl: string) {
+  const href =
+    html.match(/<link\b[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["'][^>]*>/i)?.[1] ||
+    html.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*rel=["']canonical["'][^>]*>/i)?.[1] ||
+    '';
+
+  if (!href) return '';
+
+  try {
+    return new URL(href, baseUrl).toString();
+  } catch {
+    return href;
+  }
+}
+
+function extractHtmlLang(html: string) {
+  return html.match(/<html\b[^>]*lang=["']([^"']+)["']/i)?.[1]?.trim() || '';
+}
+
+function countMatches(html: string, regex: RegExp) {
+  return html.match(regex)?.length || 0;
+}
+
+function normalizeComparableUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    parsed.hash = '';
+    if (parsed.pathname !== '/' && parsed.pathname.endsWith('/')) {
+      parsed.pathname = parsed.pathname.slice(0, -1);
+    }
+    return parsed.toString();
+  } catch {
+    return value.trim();
+  }
+}
+
+function tokenizeComparableText(value: string) {
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/[^a-zа-я0-9]+/gi, ' ')
+      .split(/\s+/)
+      .filter((token) => token.length > 2)
+  );
+}
+
+function textsMatchByTopic(first: string, second: string) {
+  if (!first || !second) return false;
+
+  const firstTokens = tokenizeComparableText(first);
+  const secondTokens = tokenizeComparableText(second);
+
+  if (!firstTokens.size || !secondTokens.size) return false;
+
+  let overlap = 0;
+  for (const token of firstTokens) {
+    if (secondTokens.has(token)) overlap += 1;
+  }
+
+  return overlap >= Math.min(2, firstTokens.size, secondTokens.size);
+}
+
+function collectJsonLdNodes(html: string) {
+  const nodes: unknown[] = [];
+  const regex =
+    /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
+  for (const match of html.matchAll(regex)) {
+    const raw = match[1]?.trim();
+    if (!raw) continue;
+
+    try {
+      nodes.push(JSON.parse(raw));
+    } catch {
+      continue;
+    }
+  }
+
+  return nodes;
+}
+
+function findSchemaString(nodes: unknown[], fieldName: string): string | null {
+  const visit = (node: unknown): string | null => {
+    if (!node) return null;
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const found = visit(item);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    if (typeof node !== 'object') return null;
+
+    const value = node as Record<string, unknown>;
+    const direct = value[fieldName];
+
+    if (typeof direct === 'string' && direct.trim()) {
+      return direct.trim();
+    }
+
+    if (typeof direct === 'object' && direct) {
+      const nestedName = (direct as Record<string, unknown>).name;
+      if (typeof nestedName === 'string' && nestedName.trim()) {
+        return nestedName.trim();
+      }
+    }
+
+    for (const child of Object.values(value)) {
+      const found = visit(child);
+      if (found) return found;
+    }
+
+    return null;
+  };
+
+  for (const node of nodes) {
+    const found = visit(node);
+    if (found) return found;
+  }
+
+  return null;
 }
 
 function buildSchemaPriorityDetails(schemaTypes: string[]): SchemaPriorityDetails {
@@ -523,38 +705,249 @@ function buildFaqCard(signals: string[]): ReadinessCard {
   };
 }
 
-function buildContentCard(html: string, text: string): {
+function buildContentCard(html: string, text: string, pageUrl: string, finalUrl: string): {
   card: ReadinessCard;
   details: AiReadiness['details'];
 } {
   const h1 = countTag(html, 'h1');
   const h2 = countTag(html, 'h2');
   const h3 = countTag(html, 'h3');
+  const h1Text = extractTagText(html, 'h1');
+  const title = extractTagText(html, 'title');
+  const metaDescription = extractMetaContent(html, 'name', 'description');
+  const listsCount = countMatches(html, /<(ul|ol)\b/gi);
+  const tablesCount = countMatches(html, /<table\b/gi);
+  const htmlLang = extractHtmlLang(html);
+  const ogTitle = extractMetaContent(html, 'property', 'og:title');
+  const ogDescription = extractMetaContent(html, 'property', 'og:description');
+  const ogImage = extractMetaContent(html, 'property', 'og:image');
+  const schemaNodes = collectJsonLdNodes(html);
+  const publishedDate =
+    findSchemaString(schemaNodes, 'datePublished') ||
+    extractMetaContent(html, 'property', 'article:published_time') ||
+    extractMetaContent(html, 'name', 'article:published_time');
+  const authorValue =
+    findSchemaString(schemaNodes, 'author') ||
+    (/<a\b[^>]*rel=["'][^"']*author[^"']*["']/i.test(html) ? 'rel=author' : '');
   const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
   const textToHtmlRatio = html.length ? Number((text.length / html.length).toFixed(2)) : 0;
   const hiddenMainContent = hasHiddenMainContent(html);
+  const canonicalUrl = extractCanonicalUrl(html, finalUrl || pageUrl);
+  const canonicalMatch =
+    canonicalUrl &&
+    normalizeComparableUrl(canonicalUrl) === normalizeComparableUrl(finalUrl || pageUrl);
 
-  let card: ReadinessCard;
+  const contentChecks: ContentDetails['checks'] = {
+    h1:
+      h1 === 0
+        ? {
+            status: 'fail',
+            value: 'Нет',
+            description: 'H1 отсутствует.',
+          }
+        : h1 !== 1
+          ? {
+              status: 'warn',
+              value: `${h1} шт`,
+              description: `Найдено ${h1} H1, лучше оставить один.`,
+            }
+          : title && textsMatchByTopic(h1Text, title)
+            ? {
+                status: 'ok',
+                value: 'Есть',
+                description: 'Есть один H1, он совпадает с темой страницы.',
+              }
+            : {
+                status: 'warn',
+                value: 'Есть',
+                description: 'H1 найден, но не совпадает с title.',
+              },
+    meta_description:
+      !metaDescription
+        ? {
+            status: 'fail',
+            value: 'Нет',
+            description: 'Description отсутствует.',
+          }
+        : metaDescription.length >= 120 && metaDescription.length <= 160
+          ? {
+              status: 'ok',
+              value: `${metaDescription.length} симв.`,
+              description: 'Description найден, длина в норме.',
+            }
+          : {
+              status: 'warn',
+              value: `${metaDescription.length} симв.`,
+              description: 'Description есть, но длина вне диапазона 120–160.',
+            },
+    heading_structure:
+      hiddenMainContent || h1 === 0 || (h3 > 0 && h2 === 0)
+        ? {
+            status: 'fail',
+            value: `H2: ${h2}, H3: ${h3}`,
+            description: hiddenMainContent
+              ? 'Основной контент скрыт или нечитабелен для AI.'
+              : 'Заголовки отсутствуют или иерархия нарушена.',
+          }
+        : h2 === 0 && h3 === 0
+          ? {
+              status: 'warn',
+              value: `H2: ${h2}, H3: ${h3}`,
+              description: 'Есть только H1, без H2/H3.',
+            }
+          : {
+              status: 'ok',
+              value: `H2: ${h2}, H3: ${h3}`,
+              description: 'Есть логичная иерархия заголовков.',
+            },
+    content_volume:
+      wordCount < 300
+        ? {
+            status: 'fail',
+            value: `${wordCount} слов`,
+            description: 'Менее 300 слов — для AI этого мало.',
+          }
+        : wordCount <= 500
+          ? {
+              status: 'warn',
+              value: `${wordCount} слов`,
+              description: '300–500 слов — достаточно, но можно больше.',
+            }
+          : {
+              status: 'ok',
+              value: `${wordCount} слов`,
+              description: 'Более 500 слов — хороший объём.',
+            },
+    lists:
+      listsCount > 0
+        ? {
+            status: 'ok',
+            value: `${listsCount} шт`,
+            description: 'Списки найдены.',
+          }
+        : {
+            status: 'warn',
+            value: 'Нет',
+            description: 'Списков нет — можно усилить структуру.',
+          },
+    tables:
+      tablesCount > 0
+        ? {
+            status: 'ok',
+            value: `${tablesCount} шт`,
+            description: 'Таблицы с данными найдены.',
+          }
+        : {
+            status: 'warn',
+            value: 'Нет',
+            description: 'Таблицы не найдены.',
+          },
+    publication_date:
+      publishedDate
+        ? {
+            status: 'ok',
+            value: publishedDate,
+            description: 'Дата публикации найдена.',
+          }
+        : {
+            status: 'warn',
+            value: 'Нет',
+            description: 'Дата публикации не найдена.',
+          },
+    author:
+      authorValue
+        ? {
+            status: 'ok',
+            value: authorValue,
+            description: 'Автор указан.',
+          }
+        : {
+            status: 'warn',
+            value: 'Нет',
+            description: 'Автор не указан — E-E-A-T сигнал слабее.',
+          },
+    open_graph: (() => {
+      const foundOgTags = [
+        ogTitle ? 'og:title' : null,
+        ogDescription ? 'og:description' : null,
+        ogImage ? 'og:image' : null,
+      ].filter(Boolean) as string[];
 
-  if (hiddenMainContent || wordCount < 100 || textToHtmlRatio < 0.05) {
-    card = {
-      status: 'fail',
-      value: 'Слабый',
-      description: 'Контент недоступен для AI или его слишком мало.',
-    };
-  } else if (h1 < 1 || (h2 < 1 && h3 < 1) || wordCount < 300 || textToHtmlRatio < 0.2) {
-    card = {
-      status: 'warn',
-      value: 'Есть риски',
-      description: 'Контент читается, но структура или объём требуют доработки.',
-    };
-  } else {
-    card = {
-      status: 'ok',
-      value: 'OK',
-      description: 'Контент структурирован и читаем для AI-систем.',
-    };
-  }
+      if (!foundOgTags.length) {
+        return {
+          status: 'fail' as const,
+          value: 'Нет',
+          description: 'Open Graph отсутствует.',
+        };
+      }
+
+      if (foundOgTags.length === 3) {
+        return {
+          status: 'ok' as const,
+          value: 'Все теги',
+          description: 'Найдены og:title, og:description и og:image.',
+        };
+      }
+
+      return {
+        status: 'warn' as const,
+        value: `${foundOgTags.length} из 3`,
+        description: `Найдены: ${foundOgTags.join(', ')}.`,
+      };
+    })(),
+    page_language:
+      htmlLang
+        ? {
+            status: 'ok',
+            value: htmlLang,
+            description: 'Атрибут lang указан.',
+          }
+        : {
+            status: 'warn',
+            value: 'Нет',
+            description: 'Атрибут lang не указан.',
+          },
+    canonical:
+      !canonicalUrl
+        ? {
+            status: 'fail',
+            value: 'Нет',
+            description: 'Canonical отсутствует.',
+          }
+        : canonicalMatch
+          ? {
+              status: 'ok',
+              value: 'OK',
+              description: 'Canonical совпадает с текущим URL.',
+            }
+          : {
+              status: 'warn',
+              value: canonicalUrl,
+              description: 'Canonical указывает на другую страницу.',
+            },
+  };
+
+  const passedChecks = Object.values(contentChecks).filter((check) => check.status === 'ok').length;
+  const totalChecks = Object.keys(contentChecks).length;
+
+  const card: ReadinessCard =
+    passedChecks >= 9
+      ? {
+          status: 'ok',
+          value: `${passedChecks} из ${totalChecks}`,
+          description: 'Хорошо — большинство AI-сигналов на месте.',
+        }
+      : passedChecks >= 6
+        ? {
+            status: 'warn',
+            value: `${passedChecks} из ${totalChecks}`,
+            description: 'Есть риски — часть сигналов нужно усилить.',
+          }
+        : {
+            status: 'fail',
+            value: `${passedChecks} из ${totalChecks}`,
+            description: 'Слабый блок контента для AI-поиска.',
+          };
 
   return {
     card,
@@ -586,6 +979,11 @@ function buildContentCard(html: string, text: string): {
       text_to_html_ratio: textToHtmlRatio,
       word_count: wordCount,
       hidden_main_content: hiddenMainContent,
+      content: {
+        passed_checks: passedChecks,
+        total_checks: totalChecks,
+        checks: contentChecks,
+      },
     },
   };
 }
@@ -597,7 +995,12 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
   const schemaTypes = extractSchemaTypes(html);
   const schemaPriorityDetails = buildSchemaPriorityDetails(schemaTypes);
   const faqSignals = detectFaqSignals(html, schemaTypes);
-  const { card: contentCard, details } = buildContentCard(html, text);
+  const { card: contentCard, details } = buildContentCard(
+    html,
+    text,
+    payload.url,
+    page.final_url || payload.url
+  );
 
   const siteRoot = (() => {
     try {
@@ -611,8 +1014,12 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
   const llmTxtUrl = siteRoot ? `${siteRoot}/llms.txt` : '';
   const robotsUrl = siteRoot ? `${siteRoot}/robots.txt` : '';
   const [llmTxt, robotsTxt] = await Promise.all([
-    llmTxtUrl ? fetchText(llmTxtUrl) : Promise.resolve({ ok: false, status: 0, text: '' }),
-    robotsUrl ? fetchText(robotsUrl) : Promise.resolve({ ok: false, status: 0, text: '' }),
+    llmTxtUrl
+      ? fetchText(llmTxtUrl)
+      : Promise.resolve({ ok: false, status: 0, text: '', final_url: '' }),
+    robotsUrl
+      ? fetchText(robotsUrl)
+      : Promise.resolve({ ok: false, status: 0, text: '', final_url: '' }),
   ]);
 
   let robotsConflict = { agent: null as string | null, rule: null as string | null };

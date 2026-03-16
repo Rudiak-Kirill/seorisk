@@ -54,6 +54,12 @@ type AiReadinessCard = {
   description: string;
 };
 
+type ContentCheck = {
+  status: AgentStatus;
+  value: string;
+  description: string;
+};
+
 type AiReadiness = {
   verdict: AgentStatus;
   summary: string;
@@ -80,6 +86,23 @@ type AiReadiness = {
     text_to_html_ratio: number;
     word_count: number;
     hidden_main_content: boolean;
+    content: {
+      passed_checks: number;
+      total_checks: number;
+      checks: {
+        h1: ContentCheck;
+        meta_description: ContentCheck;
+        heading_structure: ContentCheck;
+        content_volume: ContentCheck;
+        lists: ContentCheck;
+        tables: ContentCheck;
+        publication_date: ContentCheck;
+        author: ContentCheck;
+        open_graph: ContentCheck;
+        page_language: ContentCheck;
+        canonical: ContentCheck;
+      };
+    };
   };
 };
 
@@ -277,6 +300,18 @@ function aiVerdictClass(verdict: AgentStatus) {
   return 'border-green-200 bg-green-50 text-green-700';
 }
 
+function contentMiniCardClass(status: AgentStatus) {
+  if (status === 'fail') return 'border-red-200 bg-red-50';
+  if (status === 'warn') return 'border-amber-200 bg-amber-50';
+  return 'border-green-200 bg-green-50';
+}
+
+function contentMiniCardIcon(status: AgentStatus) {
+  if (status === 'fail') return '🔴';
+  if (status === 'warn') return '⚠️';
+  return '✅';
+}
+
 function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
@@ -347,6 +382,26 @@ export default function LlmCheckPage() {
       ...sortedAgents,
     ];
   }, [agentResults, data]);
+
+  const contentCheckEntries = useMemo(() => {
+    if (!data?.ai_readiness) return [];
+
+    const checks = data.ai_readiness.details.content.checks;
+
+    return [
+      { key: 'h1', label: 'H1', check: checks.h1 },
+      { key: 'meta_description', label: 'Мета описание', check: checks.meta_description },
+      { key: 'heading_structure', label: 'Структура', check: checks.heading_structure },
+      { key: 'content_volume', label: 'Объём', check: checks.content_volume },
+      { key: 'lists', label: 'Списки', check: checks.lists },
+      { key: 'tables', label: 'Таблицы', check: checks.tables },
+      { key: 'publication_date', label: 'Дата', check: checks.publication_date },
+      { key: 'author', label: 'Автор', check: checks.author },
+      { key: 'open_graph', label: 'Open Graph', check: checks.open_graph },
+      { key: 'page_language', label: 'Язык', check: checks.page_language },
+      { key: 'canonical', label: 'Canonical', check: checks.canonical },
+    ];
+  }, [data]);
 
   const maxTextLen = useMemo(() => {
     if (!detailRows.length) return 0;
@@ -504,7 +559,7 @@ export default function LlmCheckPage() {
                     {data.ai_readiness.summary}
                   </div>
 
-                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                       <div className="text-sm font-semibold text-gray-900">Доступность</div>
                       <div
@@ -560,19 +615,50 @@ export default function LlmCheckPage() {
                         {data.ai_readiness.cards.faq.description}
                       </div>
                     </div>
+                  </div>
 
-                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                      <div className="text-sm font-semibold text-gray-900">Контент для AI</div>
-                      <div
-                        className={`mt-3 break-words text-2xl font-semibold ${aiCardClass(
-                          data.ai_readiness.cards.content.status
-                        )}`}
-                      >
-                        {data.ai_readiness.cards.content.value}
+                  <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-3 border-b border-gray-100 pb-4 md:flex-row md:items-end md:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">Контент для AI</div>
+                        <div
+                          className={`mt-2 break-words text-2xl font-semibold ${aiCardClass(
+                            data.ai_readiness.cards.content.status
+                          )}`}
+                        >
+                          Общий счёт: {data.ai_readiness.details.content.passed_checks} из{' '}
+                          {data.ai_readiness.details.content.total_checks}
+                        </div>
                       </div>
-                      <div className="mt-2 text-sm text-gray-600">
+                      <div className="text-sm text-gray-600">
                         {data.ai_readiness.cards.content.description}
                       </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {contentCheckEntries.map((item) => (
+                        <div
+                          key={item.key}
+                          className={`rounded-lg border p-3 ${contentMiniCardClass(item.check.status)}`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+                              {item.label}
+                            </div>
+                            <div className="text-sm leading-none">
+                              {contentMiniCardIcon(item.check.status)}
+                            </div>
+                          </div>
+                          <div
+                            className={`mt-2 text-sm font-semibold ${aiCardClass(item.check.status)}`}
+                          >
+                            {item.check.value}
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-gray-600">
+                            {item.check.description}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </section>
