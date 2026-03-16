@@ -1,5 +1,5 @@
 ﻿import { desc, and, eq, isNull } from 'drizzle-orm';
-import { ensureDb } from './drizzle';
+import { db } from './drizzle';
 import {
   activityLogs,
   indexChecks,
@@ -11,8 +11,6 @@ import {
 } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
-
-const db = ensureDb();
 
 export async function getUser() {
   const sessionCookie = (await cookies()).get('session');
