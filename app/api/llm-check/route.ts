@@ -53,6 +53,12 @@ type ReadinessCard = {
   description: string;
 };
 
+type SchemaPriorityDetails = {
+  critical: { matched: string[]; total: number; tracked: string[] };
+  important: { matched: string[]; total: number; tracked: string[] };
+  basic: { matched: string[]; total: number; tracked: string[] };
+};
+
 type AiReadiness = {
   verdict: CardStatus;
   summary: string;
@@ -69,6 +75,7 @@ type AiReadiness = {
     llm_txt_conflict_rule: string | null;
     llm_txt_conflict_agent: string | null;
     schema_types: string[];
+    schema_priorities: SchemaPriorityDetails;
     faq_signals: string[];
     headings: { h1: number; h2: number; h3: number };
     text_to_html_ratio: number;
@@ -87,6 +94,35 @@ type RobotsGroup = {
   userAgents: string[];
   rules: { directive: 'allow' | 'disallow'; value: string }[];
 };
+
+const schemaPriorityMap = {
+  critical: [
+    'FAQPage',
+    'QAPage',
+    'Product',
+    'Offer',
+    'AggregateOffer',
+    'Article',
+    'NewsArticle',
+    'BlogPosting',
+    'LocalBusiness',
+    'HowTo',
+    'Review',
+    'AggregateRating',
+  ],
+  important: [
+    'Organization',
+    'Person',
+    'WebSite',
+    'WebPage',
+    'WebApplication',
+    'Service',
+    'Event',
+    'VideoObject',
+    'ImageObject',
+  ],
+  basic: ['BreadcrumbList', 'ListItem', 'SiteLinksSearchBox', 'SearchAction'],
+} as const;
 
 function deriveLlmCheckSummary(payload: LlmPayload) {
   const checks = payload?.checks;
@@ -208,6 +244,28 @@ function extractSchemaTypes(html: string) {
   }
 
   return Array.from(types);
+}
+
+function buildSchemaPriorityDetails(schemaTypes: string[]): SchemaPriorityDetails {
+  const schemaSet = new Set(schemaTypes);
+
+  return {
+    critical: {
+      matched: schemaPriorityMap.critical.filter((item) => schemaSet.has(item)),
+      total: schemaPriorityMap.critical.length,
+      tracked: [...schemaPriorityMap.critical],
+    },
+    important: {
+      matched: schemaPriorityMap.important.filter((item) => schemaSet.has(item)),
+      total: schemaPriorityMap.important.length,
+      tracked: [...schemaPriorityMap.important],
+    },
+    basic: {
+      matched: schemaPriorityMap.basic.filter((item) => schemaSet.has(item)),
+      total: schemaPriorityMap.basic.length,
+      tracked: [...schemaPriorityMap.basic],
+    },
+  };
 }
 
 function detectFaqSignals(html: string, schemaTypes: string[]) {
@@ -421,22 +479,31 @@ function buildLlmTxtCard(
   };
 }
 
-function buildSchemaCard(schemaTypes: string[]): ReadinessCard {
-  if (!schemaTypes.length) {
+function buildSchemaCard(schemaPriorityDetails: SchemaPriorityDetails): ReadinessCard {
+  const foundCount =
+    schemaPriorityDetails.critical.matched.length +
+    schemaPriorityDetails.important.matched.length +
+    schemaPriorityDetails.basic.matched.length;
+  const totalCount =
+    schemaPriorityDetails.critical.total +
+    schemaPriorityDetails.important.total +
+    schemaPriorityDetails.basic.total;
+  const hasCritical = schemaPriorityDetails.critical.matched.length > 0;
+
+  if (!foundCount) {
     return {
-      status: 'warn',
+      status: 'fail',
       value: 'Нет',
       description: 'JSON-LD разметка schema.org не найдена.',
     };
   }
 
   return {
-    status: 'ok',
-    value: schemaTypes.slice(0, 2).join(', '),
-    description:
-      schemaTypes.length > 2
-        ? `Найдено ${schemaTypes.length} типов schema.org.`
-        : 'Schema.org разметка найдена.',
+    status: hasCritical ? 'ok' : 'warn',
+    value: `${foundCount} из ${totalCount}`,
+    description: hasCritical
+      ? 'Есть критические типы schema.org.'
+      : 'Есть только важные или базовые типы schema.org.',
   };
 }
 
@@ -497,6 +564,23 @@ function buildContentCard(html: string, text: string): {
       llm_txt_conflict_rule: null,
       llm_txt_conflict_agent: null,
       schema_types: [],
+      schema_priorities: {
+        critical: {
+          matched: [],
+          total: schemaPriorityMap.critical.length,
+          tracked: [...schemaPriorityMap.critical],
+        },
+        important: {
+          matched: [],
+          total: schemaPriorityMap.important.length,
+          tracked: [...schemaPriorityMap.important],
+        },
+        basic: {
+          matched: [],
+          total: schemaPriorityMap.basic.length,
+          tracked: [...schemaPriorityMap.basic],
+        },
+      },
       faq_signals: [],
       headings: { h1, h2, h3 },
       text_to_html_ratio: textToHtmlRatio,
@@ -511,13 +595,14 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
   const html = page.text || '';
   const text = stripHtml(html);
   const schemaTypes = extractSchemaTypes(html);
+  const schemaPriorityDetails = buildSchemaPriorityDetails(schemaTypes);
   const faqSignals = detectFaqSignals(html, schemaTypes);
   const { card: contentCard, details } = buildContentCard(html, text);
 
   const siteRoot = (() => {
     try {
       const parsed = new URL(payload.url);
-      return `${parsed.protocol}//${parsed.host}`;
+      return parsed.origin;
     } catch {
       return '';
     }
@@ -549,7 +634,7 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
 
   const availabilityCard = buildAvailabilityCard(payload);
   const llmTxtCard = buildLlmTxtCard(llmTxt, robotsConflict);
-  const schemaCard = buildSchemaCard(schemaTypes);
+  const schemaCard = buildSchemaCard(schemaPriorityDetails);
   const faqCard = buildFaqCard(faqSignals);
 
   const cards = {
@@ -577,6 +662,7 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
       llm_txt_conflict_rule: robotsConflict.rule,
       llm_txt_conflict_agent: robotsConflict.agent,
       schema_types: schemaTypes,
+      schema_priorities: schemaPriorityDetails,
       faq_signals: faqSignals,
     },
   };

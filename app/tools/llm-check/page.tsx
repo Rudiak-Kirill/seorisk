@@ -70,6 +70,11 @@ type AiReadiness = {
     llm_txt_conflict_rule: string | null;
     llm_txt_conflict_agent: string | null;
     schema_types: string[];
+    schema_priorities: {
+      critical: { matched: string[]; total: number; tracked: string[] };
+      important: { matched: string[]; total: number; tracked: string[] };
+      basic: { matched: string[]; total: number; tracked: string[] };
+    };
     faq_signals: string[];
     headings: { h1: number; h2: number; h3: number };
     text_to_html_ratio: number;
@@ -276,6 +281,22 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
+function renderSchemaBucket(
+  label: string,
+  bucket: { matched: string[]; tracked: string[] }
+) {
+  const matchedSet = new Set(bucket.matched);
+
+  return (
+    <div>
+      <div className="font-medium text-gray-900">{label}</div>
+      <div className="mt-1 break-words">
+        {bucket.tracked.map((item) => `${item} ${matchedSet.has(item) ? '✅' : '❌'}`).join('  ')}
+      </div>
+    </div>
+  );
+}
+
 export default function LlmCheckPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -390,73 +411,91 @@ export default function LlmCheckPage() {
 
           {data && (
             <>
-              <section className={`mt-6 rounded-2xl border ${banner.className}`}>
-                <div className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-start gap-3">
-                    <banner.icon className={`mt-0.5 h-6 w-6 shrink-0 ${banner.iconClassName}`} />
-                    <div>
-                      <div className="text-lg font-semibold">{banner.title}</div>
-                      <p className="mt-1 text-sm leading-6 text-current/90">{banner.description}</p>
+              <section className="mt-6">
+                <div className="mb-3">
+                  <h2 className="text-lg font-semibold text-gray-900">Техническая доступность</h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Проверка, получают ли AI-боты страницу и не упираются ли в ошибки сервера или защиту.
+                  </p>
+                </div>
+
+                <div className={`rounded-2xl border ${banner.className}`}>
+                  <div className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-start gap-3">
+                      <banner.icon className={`mt-0.5 h-6 w-6 shrink-0 ${banner.iconClassName}`} />
+                      <div>
+                        <div className="text-lg font-semibold">{banner.title}</div>
+                        <p className="mt-1 text-sm leading-6 text-current/90">{banner.description}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <span
+                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
+                          'ok'
+                        )}`}
+                      >
+                        {okCount} ботов — норма
+                      </span>
+                      {warnCount > 0 && (
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
+                            'warn'
+                          )}`}
+                        >
+                          {warnCount} с расхождениями
+                        </span>
+                      )}
+                      {failCount > 0 && (
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
+                            'fail'
+                          )}`}
+                        >
+                          {failCount} заблокирован
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <span
-                      className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
-                        'ok'
-                      )}`}
-                    >
-                      {okCount} ботов — норма
-                    </span>
-                    {warnCount > 0 && (
-                      <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
-                          'warn'
-                        )}`}
-                      >
-                        {warnCount} с расхождениями
-                      </span>
-                    )}
-                    {failCount > 0 && (
-                      <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-medium ${getCountPillClass(
-                          'fail'
-                        )}`}
-                      >
-                        {failCount} заблокирован
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {problemAgents.length > 0 && (
-                  <div className="border-t border-black/10 bg-white/60">
-                    {problemAgents.map((agent) => (
-                      <div
-                        key={agent.key}
-                        className="grid gap-3 px-5 py-4 md:grid-cols-[180px_1fr]"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`inline-flex min-w-14 justify-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              agent.status === 'fail'
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-amber-100 text-amber-700'
-                            }`}
-                          >
-                            {agent.badge}
-                          </span>
-                          <span className="font-medium text-gray-900">{agent.label}</span>
+                  {problemAgents.length > 0 && (
+                    <div className="border-t border-black/10 bg-white/60">
+                      {problemAgents.map((agent) => (
+                        <div
+                          key={agent.key}
+                          className="grid gap-3 px-5 py-4 md:grid-cols-[180px_1fr]"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={`inline-flex min-w-14 justify-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                agent.status === 'fail'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-amber-100 text-amber-700'
+                              }`}
+                            >
+                              {agent.badge}
+                            </span>
+                            <span className="font-medium text-gray-900">{agent.label}</span>
+                          </div>
+                          <div className="text-sm text-gray-600">{agent.summary}</div>
                         </div>
-                        <div className="text-sm text-gray-600">{agent.summary}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
               </section>
+
+              <div className="mt-6 border-t border-gray-200" />
 
               {data.ai_readiness && (
                 <section className="mt-6">
+                  <div className="mb-3">
+                    <h2 className="text-lg font-semibold text-gray-900">Готовность к AI-поиску</h2>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Проверка технических сигналов, которые помогают AI-системам читать и понимать страницу.
+                    </p>
+                  </div>
+
                   <div
                     className={`rounded-xl border px-4 py-3 text-sm font-medium ${aiVerdictClass(
                       data.ai_readiness.verdict
@@ -667,6 +706,18 @@ export default function LlmCheckPage() {
                                 : 'Не найдены'}
                             </div>
                           </div>
+                          {renderSchemaBucket(
+                            '🔴 Критические',
+                            data.ai_readiness.details.schema_priorities.critical
+                          )}
+                          {renderSchemaBucket(
+                            '🟡 Важные',
+                            data.ai_readiness.details.schema_priorities.important
+                          )}
+                          {renderSchemaBucket(
+                            '🟢 Базовые',
+                            data.ai_readiness.details.schema_priorities.basic
+                          )}
                           <div>
                             <div className="font-medium text-gray-900">FAQ сигналы</div>
                             <div className="break-words">
