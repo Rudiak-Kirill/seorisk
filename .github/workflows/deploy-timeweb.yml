@@ -36,13 +36,21 @@ jobs:
 
             echo "Health checks:"
             for path in / /sign-in /tools/ssr-check /tools/llm-check /tools/index-check /robots.txt /sitemap.xml; do
-              code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "http://127.0.0.1:3000${path}")"
-              echo "${path} -> ${code}"
-              case "${code}" in
-                200|301|302) ;;
-                *)
-                  echo "Health check failed for ${path}"
-                  exit 1
-                  ;;
-              esac
+              ok=0
+              for attempt in 1 2 3 4 5; do
+                code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "http://127.0.0.1:3000${path}" || true)"
+                echo "${path} [attempt ${attempt}] -> ${code}"
+                case "${code}" in
+                  200|301|302)
+                    ok=1
+                    break
+                    ;;
+                esac
+                sleep 3
+              done
+
+              if [ "${ok}" -ne 1 ]; then
+                echo "Health check failed for ${path}"
+                exit 1
+              fi
             done
