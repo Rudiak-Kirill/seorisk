@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -152,9 +152,24 @@ export default function SpeedCheckPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fullLoading, setFullLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [data, setData] = useState<SpeedCheckResponse | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const requestIdRef = useRef(0);
+
+  const isChecking = loading || fullLoading;
+
+  useEffect(() => {
+    if (!isChecking) return;
+
+    const limit = loading ? 35 : 92;
+    const step = loading ? 6 : 3;
+    const interval = setInterval(() => {
+      setProgress((current) => (current >= limit ? current : Math.min(limit, current + step)));
+    }, 350);
+
+    return () => clearInterval(interval);
+  }, [isChecking, loading, fullLoading]);
 
   const onCheck = async () => {
     if (!url.trim()) return;
@@ -164,6 +179,7 @@ export default function SpeedCheckPage() {
 
     setLoading(true);
     setFullLoading(false);
+    setProgress(5);
     setShowDetails(false);
     setError(null);
     setData(null);
@@ -184,6 +200,7 @@ export default function SpeedCheckPage() {
       }
 
       setData(quickPayload);
+      setProgress((current) => Math.max(current, 35));
       setFullLoading(true);
       setLoading(false);
 
@@ -217,6 +234,7 @@ export default function SpeedCheckPage() {
         return;
       }
 
+      setProgress(100);
       setData(fullPayload);
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
@@ -256,173 +274,185 @@ export default function SpeedCheckPage() {
 
           {data && (
             <>
-              {fullLoading && data.loading_text ? (
-                <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                  {data.loading_text}
-                </div>
-              ) : null}
-
-              <div className={`mt-6 rounded-xl border px-4 py-4 ${verdictClass(data.verdict)}`}>
-                <div className="text-base font-semibold">{data.verdict_title}</div>
-                <div className="mt-1 text-sm">{data.verdict_summary}</div>
-              </div>
-
-              {data.problem_cards.length > 0 ? (
-                <section className="mt-6 space-y-3">
-                  {data.problem_cards.map((card, index) => (
+              {isChecking ? (
+                <div className="mt-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4">
+                  <div className="flex items-center justify-between gap-4 text-sm font-medium text-blue-700">
+                    <span>{loading ? 'Проверяем ответ сервера...' : 'Анализируем Lighthouse...'}</span>
+                    <span>{progress}%</span>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
                     <div
-                      key={`${card.title}-${index}`}
-                      className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
-                    >
-                      <div className="flex items-start gap-3">
-                        <span
-                          className={`mt-0.5 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${severityClass(
-                            card.severity
-                          )}`}
-                        >
-                          {severityLabel(card.severity)}
-                        </span>
-                        <div>
-                          <div className="text-sm font-semibold text-gray-900">{card.title}</div>
-                          <div className="mt-1 text-sm text-gray-600">→ {card.action}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-              ) : (
-                <div className="mt-6 rounded-xl border border-green-200 bg-green-50 px-4 py-4 text-sm text-green-700">
-                  ✅ Сайт загружается быстро. Явных проблем со скоростью не обнаружено.
+                      className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 text-sm text-blue-700">
+                    {loading
+                      ? 'Собираем TTFB, HTTP-кеш, CMS и CDN.'
+                      : 'Собираем mobile и desktop метрики, opportunities и Lighthouse-сигналы.'}
+                  </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  <div className={`mt-6 rounded-xl border px-4 py-4 ${verdictClass(data.verdict)}`}>
+                    <div className="text-base font-semibold">{data.verdict_title}</div>
+                    <div className="mt-1 text-sm">{data.verdict_summary}</div>
+                  </div>
 
-              <div className="mt-6">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  onClick={() => setShowDetails((prev) => !prev)}
-                >
-                  {showDetails ? 'Скрыть детали' : 'Показать детали'}
-                </Button>
-              </div>
-
-              {showDetails && (
-                <div className="mt-6 grid gap-6 lg:grid-cols-3">
-                  <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-900">Быстрый чек</h2>
-                    <div className="mt-3">
-                      <DetailRow label="Final URL" value={data.details.quick.final_url} />
-                      <DetailRow label="HTTP статус" value={data.details.quick.http_status} />
-                      <DetailRow label="TTFB" value={formatMilliseconds(data.details.quick.ttfb_ms)} />
-                      <DetailRow label="Оценка TTFB" value={ttfbLabel(data.details.quick.ttfb_state)} />
-                      <DetailRow label="HTTP-кеш" value={cacheLabel(data.details.quick.cache_state)} />
-                      <DetailRow label="Серверный кеш" value={serverCacheLabel(data.details.quick.server_cache_state)} />
-                      <DetailRow
-                        label="Cache-Control"
-                        value={data.details.quick.cache_control || '—'}
-                      />
-                      <DetailRow
-                        label="Content-Encoding"
-                        value={data.details.quick.content_encoding || '—'}
-                      />
-                      <DetailRow label="CMS" value={data.details.quick.cms} />
-                      <DetailRow label="CDN" value={data.details.quick.cdn || 'Не найден'} />
-                    </div>
-                  </section>
-
-                  <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-900">PageSpeed</h2>
-                    <div className="mt-3">
-                      <DetailRow
-                        label="Mobile score"
-                        value={formatScore(data.details.full.mobile?.performance_score ?? null)}
-                      />
-                      <DetailRow
-                        label="Desktop score"
-                        value={formatScore(data.details.full.desktop?.performance_score ?? null)}
-                      />
-                      <DetailRow
-                        label="Mobile gap"
-                        value={
-                          data.details.full.mobile_gap !== null
-                            ? `${data.details.full.mobile_gap} пунктов`
-                            : '—'
-                        }
-                      />
-                      <DetailRow
-                        label="FCP mobile"
-                        value={formatMilliseconds(data.details.full.mobile?.fcp_ms ?? null)}
-                      />
-                      <DetailRow
-                        label="LCP mobile"
-                        value={formatMilliseconds(data.details.full.mobile?.lcp_ms ?? null)}
-                      />
-                      <DetailRow
-                        label="CLS mobile"
-                        value={formatCls(data.details.full.mobile?.cls ?? null)}
-                      />
-                      <DetailRow
-                        label="TBT mobile"
-                        value={formatMilliseconds(data.details.full.mobile?.tbt_ms ?? null)}
-                      />
-                      <DetailRow
-                        label="Вес страницы"
-                        value={formatBytes(data.details.full.page_weight_bytes)}
-                      />
-                      <DetailRow
-                        label="Google Fonts"
-                        value={data.details.full.google_fonts_detected ? 'Найдены' : 'Нет'}
-                      />
-                    </div>
-                  </section>
-
-                  <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-900">Opportunities</h2>
-                    {data.details.full.psi_error ? (
-                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                        {data.details.full.psi_error}
-                      </div>
-                    ) : null}
-
-                    {data.details.full.mobile_error || data.details.full.desktop_error ? (
-                      <div className="mt-3 space-y-2">
-                        {data.details.full.mobile_error ? (
-                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                            Mobile: {data.details.full.mobile_error}
-                          </div>
-                        ) : null}
-                        {data.details.full.desktop_error ? (
-                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                            Desktop: {data.details.full.desktop_error}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-
-                    <div className="mt-3 space-y-3 text-sm text-gray-600">
-                      {data.details.full.opportunities.length > 0 ? (
-                        data.details.full.opportunities.map((item) => (
-                          <div key={item.id} className="rounded-lg border border-gray-200 p-3">
-                            <div className="font-medium text-gray-900">{item.title}</div>
-                            <div className="mt-1 text-xs text-gray-500">
-                              {item.savings_ms !== null
-                                ? `Экономия: ${formatMilliseconds(item.savings_ms)}`
-                                : 'Экономия по времени не указана'}
-                              {item.savings_bytes !== null
-                                ? ` · Экономия: ${formatBytes(item.savings_bytes)}`
-                                : ''}
+                  {data.problem_cards.length > 0 ? (
+                    <section className="mt-6 space-y-3">
+                      {data.problem_cards.map((card, index) => (
+                        <div
+                          key={`${card.title}-${index}`}
+                          className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+                        >
+                          <div className="flex items-start gap-3">
+                            <span
+                              className={`mt-0.5 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${severityClass(
+                                card.severity
+                              )}`}
+                            >
+                              {severityLabel(card.severity)}
+                            </span>
+                            <div>
+                              <div className="text-sm font-semibold text-gray-900">{card.title}</div>
+                              <div className="mt-1 text-sm text-gray-600">→ {card.action}</div>
                             </div>
                           </div>
-                        ))
-                      ) : (
-                        <div className="rounded-lg border border-gray-200 p-3 text-sm text-gray-600">
-                          Явных Lighthouse opportunities не найдено.
                         </div>
-                      )}
+                      ))}
+                    </section>
+                  ) : null}
+
+                  <div className="mt-6">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => setShowDetails((prev) => !prev)}
+                    >
+                      {showDetails ? 'Скрыть детали' : 'Показать детали'}
+                    </Button>
+                  </div>
+
+                  {showDetails && (
+                    <div className="mt-6 grid gap-6 lg:grid-cols-3">
+                      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-900">Быстрый чек</h2>
+                        <div className="mt-3">
+                          <DetailRow label="Final URL" value={data.details.quick.final_url} />
+                          <DetailRow label="HTTP статус" value={data.details.quick.http_status} />
+                          <DetailRow label="TTFB" value={formatMilliseconds(data.details.quick.ttfb_ms)} />
+                          <DetailRow label="Оценка TTFB" value={ttfbLabel(data.details.quick.ttfb_state)} />
+                          <DetailRow label="HTTP-кеш" value={cacheLabel(data.details.quick.cache_state)} />
+                          <DetailRow label="Серверный кеш" value={serverCacheLabel(data.details.quick.server_cache_state)} />
+                          <DetailRow
+                            label="Cache-Control"
+                            value={data.details.quick.cache_control || '—'}
+                          />
+                          <DetailRow
+                            label="Content-Encoding"
+                            value={data.details.quick.content_encoding || '—'}
+                          />
+                          <DetailRow label="CMS" value={data.details.quick.cms} />
+                          <DetailRow label="CDN" value={data.details.quick.cdn || 'Не найден'} />
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-900">PageSpeed</h2>
+                        <div className="mt-3">
+                          <DetailRow
+                            label="Mobile score"
+                            value={formatScore(data.details.full.mobile?.performance_score ?? null)}
+                          />
+                          <DetailRow
+                            label="Desktop score"
+                            value={formatScore(data.details.full.desktop?.performance_score ?? null)}
+                          />
+                          <DetailRow
+                            label="Mobile gap"
+                            value={
+                              data.details.full.mobile_gap !== null
+                                ? `${data.details.full.mobile_gap} пунктов`
+                                : '—'
+                            }
+                          />
+                          <DetailRow
+                            label="FCP mobile"
+                            value={formatMilliseconds(data.details.full.mobile?.fcp_ms ?? null)}
+                          />
+                          <DetailRow
+                            label="LCP mobile"
+                            value={formatMilliseconds(data.details.full.mobile?.lcp_ms ?? null)}
+                          />
+                          <DetailRow
+                            label="CLS mobile"
+                            value={formatCls(data.details.full.mobile?.cls ?? null)}
+                          />
+                          <DetailRow
+                            label="TBT mobile"
+                            value={formatMilliseconds(data.details.full.mobile?.tbt_ms ?? null)}
+                          />
+                          <DetailRow
+                            label="Вес страницы"
+                            value={formatBytes(data.details.full.page_weight_bytes)}
+                          />
+                          <DetailRow
+                            label="Google Fonts"
+                            value={data.details.full.google_fonts_detected ? 'Найдены' : 'Нет'}
+                          />
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-900">Opportunities</h2>
+                        {data.details.full.psi_error ? (
+                          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                            {data.details.full.psi_error}
+                          </div>
+                        ) : null}
+
+                        {data.details.full.mobile_error || data.details.full.desktop_error ? (
+                          <div className="mt-3 space-y-2">
+                            {data.details.full.mobile_error ? (
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                                Mobile: {data.details.full.mobile_error}
+                              </div>
+                            ) : null}
+                            {data.details.full.desktop_error ? (
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                                Desktop: {data.details.full.desktop_error}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        <div className="mt-3 space-y-3 text-sm text-gray-600">
+                          {data.details.full.opportunities.length > 0 ? (
+                            data.details.full.opportunities.map((item) => (
+                              <div key={item.id} className="rounded-lg border border-gray-200 p-3">
+                                <div className="font-medium text-gray-900">{item.title}</div>
+                                <div className="mt-1 text-xs text-gray-500">
+                                  {item.savings_ms !== null
+                                    ? `Экономия: ${formatMilliseconds(item.savings_ms)}`
+                                    : 'Экономия по времени не указана'}
+                                  {item.savings_bytes !== null
+                                    ? ` · Экономия: ${formatBytes(item.savings_bytes)}`
+                                    : ''}
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-lg border border-gray-200 p-3 text-sm text-gray-600">
+                              Явных Lighthouse opportunities не найдено.
+                            </div>
+                          )}
+                        </div>
+                      </section>
                     </div>
-                  </section>
-                </div>
+                  )}
+                </>
               )}
             </>
           )}
