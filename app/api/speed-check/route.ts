@@ -53,6 +53,8 @@ type FullDetails = {
   google_fonts_detected: boolean;
   psi_available: boolean;
   psi_error: string | null;
+  mobile_error: string | null;
+  desktop_error: string | null;
 };
 
 type SpeedCheckResponse = {
@@ -242,12 +244,11 @@ function detectCacheState(headers: Headers): CacheState {
     return 'good';
   }
 
-  if (
-    cacheControl.includes('no-store') ||
-    cacheControl.includes('no-cache') ||
-    pragma.includes('no-cache') ||
-    !cacheControl
-  ) {
+  if (cacheControl.includes('no-store') || cacheControl.includes('no-cache') || pragma.includes('no-cache')) {
+    return 'none';
+  }
+
+  if (!cacheControl) {
     return hasValidator ? 'partial' : 'none';
   }
 
@@ -365,12 +366,19 @@ async function fetchPsi(strategy: 'mobile' | 'desktop', url: string): Promise<Ps
       error: null,
     };
   } catch (error) {
+    const message =
+      error instanceof Error && error.name === 'AbortError'
+        ? `Анализ ${strategy} превысил лимит 30 секунд`
+        : error instanceof Error
+          ? error.message
+          : 'PSI request failed';
+
     return {
       ok: false,
       metrics: null,
       opportunities: [],
       page_weight_bytes: null,
-      error: error instanceof Error ? error.message : 'PSI request failed',
+      error: message,
     };
   } finally {
     clearTimeout(timeout);
@@ -401,6 +409,7 @@ function buildProblemCards(
   const mobileLcp = lcpState(full.mobile?.lcp_ms ?? null);
   const mobileCls = clsState(full.mobile?.cls ?? null);
   const mobileTbt = tbtState(full.mobile?.tbt_ms ?? null);
+  const psiPartial = Boolean((full.mobile && !full.desktop) || (!full.mobile && full.desktop));
   const noCache = quick.cache_state === 'none';
   const partialCache = quick.cache_state === 'partial';
   const noCdn = !quick.cdn;
@@ -416,6 +425,22 @@ function buildProblemCards(
     'unused-css-rules',
   ]);
   const hasFontsIssue = hasOpportunity(full.opportunities, ['font-display']);
+
+  if (!full.psi_available) {
+    pushProblem(cards, {
+      severity: 'warn',
+      title: 'Полный Lighthouse-анализ недоступен',
+      action: 'Повторите проверку позже или проверьте лимиты PageSpeed Insights API.',
+      reason: full.psi_error || 'Не удалось получить mobile и desktop данные.',
+    });
+  } else if (psiPartial) {
+    pushProblem(cards, {
+      severity: 'warn',
+      title: 'Анализ скорости собран частично',
+      action: 'Повторите проверку: одна из стратегий PSI не завершилась вовремя.',
+      reason: full.mobile ? full.desktop_error || 'Desktop-анализ не завершился.' : full.mobile_error || 'Mobile-анализ не завершился.',
+    });
+  }
 
   if (quick.ttfb_state === 'slow' || quick.ttfb_state === 'critical') {
     if (noCache) {
@@ -595,6 +620,8 @@ function buildQuickPayload(inputUrl: string, snapshot: FetchSnapshot): SpeedChec
     google_fonts_detected: /fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(snapshot.html),
     psi_available: false,
     psi_error: null,
+    mobile_error: null,
+    desktop_error: null,
   });
 
   return {
@@ -619,6 +646,8 @@ function buildQuickPayload(inputUrl: string, snapshot: FetchSnapshot): SpeedChec
         google_fonts_detected: /fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(snapshot.html),
         psi_available: false,
         psi_error: null,
+        mobile_error: null,
+        desktop_error: null,
       },
     },
   };
@@ -649,7 +678,9 @@ async function buildFullPayload(inputUrl: string, snapshot: FetchSnapshot): Prom
     ),
     google_fonts_detected: googleFontsDetected,
     psi_available: mobile.ok || desktop.ok,
-    psi_error: mobile.error || desktop.error || null,
+    psi_error: !mobile.ok && !desktop.ok ? mobile.error || desktop.error || null : null,
+    mobile_error: mobile.error || null,
+    desktop_error: desktop.error || null,
   };
 
   const summary = buildProblemCards(quick, full);

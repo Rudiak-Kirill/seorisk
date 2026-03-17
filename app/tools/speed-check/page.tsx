@@ -65,6 +65,8 @@ type SpeedCheckResponse = {
       google_fonts_detected: boolean;
       psi_available: boolean;
       psi_error: string | null;
+      mobile_error: string | null;
+      desktop_error: string | null;
     };
   };
   error?: string;
@@ -197,6 +199,8 @@ export default function SpeedCheckPage() {
                   full: {
                     ...prev.details.full,
                     psi_error: fullPayload.error || 'Не удалось получить Lighthouse-данные',
+                    mobile_error: null,
+                    desktop_error: null,
                   },
                 },
               }
@@ -369,6 +373,21 @@ export default function SpeedCheckPage() {
                     {data.details.full.psi_error ? (
                       <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
                         {data.details.full.psi_error}
+                      </div>
+                    ) : null}
+
+                    {data.details.full.mobile_error || data.details.full.desktop_error ? (
+                      <div className="mt-3 space-y-2">
+                        {data.details.full.mobile_error ? (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                            Mobile: {data.details.full.mobile_error}
+                          </div>
+                        ) : null}
+                        {data.details.full.desktop_error ? (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                            Desktop: {data.details.full.desktop_error}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 
