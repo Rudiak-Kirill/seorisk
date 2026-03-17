@@ -83,7 +83,7 @@ function verdictClass(verdict: Verdict) {
 function severityClass(severity: Severity) {
   if (severity === 'critical') return 'bg-red-100 text-red-700';
   if (severity === 'warn') return 'bg-amber-100 text-amber-700';
-  return 'bg-blue-100 text-blue-700';
+  return 'bg-orange-100 text-orange-700';
 }
 
 function severityLabel(severity: Severity) {
@@ -275,18 +275,18 @@ export default function SpeedCheckPage() {
           {data && (
             <>
               {isChecking ? (
-                <div className="mt-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4">
-                  <div className="flex items-center justify-between gap-4 text-sm font-medium text-blue-700">
+                <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
+                  <div className="flex items-center justify-between gap-4 text-sm font-medium text-gray-900">
                     <span>{loading ? 'Проверяем ответ сервера...' : 'Анализируем Lighthouse...'}</span>
                     <span>{progress}%</span>
                   </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-200">
                     <div
-                      className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                      className="h-full rounded-full bg-orange-500 transition-all duration-300"
                       style={{ width: `${progress}%` }}
                     />
                   </div>
-                  <div className="mt-3 text-sm text-blue-700">
+                  <div className="mt-3 text-sm text-gray-700">
                     {loading
                       ? 'Собираем TTFB, HTTP-кеш, CMS и CDN.'
                       : 'Собираем mobile и desktop метрики, opportunities и Lighthouse-сигналы.'}

@@ -628,6 +628,7 @@ function buildProblemCards(
 
   const hasCritical = cards.some((item) => item.severity === 'critical');
   const hasWarn = cards.some((item) => item.severity === 'warn');
+  const hasImprove = cards.some((item) => item.severity === 'improve');
 
   if (hasCritical) {
     return {
@@ -638,11 +639,20 @@ function buildProblemCards(
     };
   }
 
-  if (hasWarn || cards.length > 0) {
+  if (hasWarn) {
     return {
       verdict: 'warn',
       verdict_title: 'Скорость средняя — есть что улучшить',
       verdict_summary: 'Критичных проблем нет, но часть узких мест уже влияет на загрузку.',
+      problem_cards: cards,
+    };
+  }
+
+  if (hasImprove) {
+    return {
+      verdict: 'ok',
+      verdict_title: 'Сайт загружается быстро',
+      verdict_summary: 'Критичных проблем нет, но есть небольшие улучшения по кешированию и инфраструктуре.',
       problem_cards: cards,
     };
   }
