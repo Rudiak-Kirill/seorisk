@@ -8,6 +8,7 @@ type Severity = 'critical' | 'warn' | 'improve';
 type TtfbState = 'fast' | 'normal' | 'slow' | 'critical' | 'unknown';
 type MetricState = 'good' | 'slow' | 'critical' | 'problem' | 'unknown';
 type CacheState = 'good' | 'partial' | 'none' | 'unknown';
+type ServerCacheState = 'likely' | 'not_detected';
 
 type PageSpeedMetrics = {
   performance_score: number | null;
@@ -38,6 +39,7 @@ type QuickDetails = {
   ttfb_ms: number | null;
   ttfb_state: TtfbState;
   cache_state: CacheState;
+  server_cache_state: ServerCacheState;
   cache_control: string | null;
   content_encoding: string | null;
   cms: string;
@@ -259,6 +261,46 @@ function detectCacheState(headers: Headers): CacheState {
   return 'unknown';
 }
 
+
+function detectServerCache(headers: Headers, html: string, ttfbMs: number | null): ServerCacheState {
+  const headerValues = [
+    headers.get('x-cache'),
+    headers.get('x-litespeed-cache'),
+    headers.get('x-varnish'),
+    headers.get('x-proxy-cache'),
+    headers.get('x-fastcgi-cache'),
+    headers.get('cf-cache-status'),
+    headers.get('x-rocket-nginx-serving-static'),
+    headers.get('x-cache-enabled'),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (
+    headerValues.includes('hit') ||
+    headerValues.includes('miss') ||
+    headerValues.includes('bypass') ||
+    headerValues.includes('varnish') ||
+    headerValues.includes('litespeed')
+  ) {
+    return 'likely';
+  }
+
+  const htmlLower = html.toLowerCase();
+  const dynamicCms =
+    htmlLower.includes('wp-content') ||
+    htmlLower.includes('/bitrix/') ||
+    htmlLower.includes('bx.setcsslist') ||
+    htmlLower.includes('wordpress');
+
+  if (dynamicCms && ttfbMs !== null && ttfbMs < 100) {
+    return 'likely';
+  }
+
+  return 'not_detected';
+}
+
 function ttfbState(ttfb: number | null): TtfbState {
   if (!ttfb) return 'unknown';
   if (ttfb > 2000) return 'critical';
@@ -412,6 +454,7 @@ function buildProblemCards(
   const psiPartial = Boolean((full.mobile && !full.desktop) || (!full.mobile && full.desktop));
   const noCache = quick.cache_state === 'none';
   const partialCache = quick.cache_state === 'partial';
+  const serverCacheLikely = quick.server_cache_state === 'likely';
   const noCdn = !quick.cdn;
   const mobileGap = full.mobile_gap ?? 0;
   const hasImageIssue = hasOpportunity(full.opportunities, [
@@ -488,12 +531,19 @@ function buildProblemCards(
         reason: 'TTFB остаётся медленным даже с кешем.',
       });
     }
-  } else if (quick.ttfb_state === 'normal' && noCache) {
+  } else if (quick.ttfb_state === 'normal' && noCache && !serverCacheLikely) {
     pushProblem(cards, {
       severity: 'warn',
       title: 'Страница не кешируется',
       action: 'Сервер быстрый — добавьте кеширование для стабильности под нагрузкой.',
       reason: 'TTFB в норме, но кеширование отсутствует.',
+    });
+  } else if (noCache && serverCacheLikely) {
+    pushProblem(cards, {
+      severity: 'improve',
+      title: 'HTML-страница не кешируется по HTTP',
+      action: 'Внутренний серверный кеш, вероятно, уже есть, но браузерный/CDN-кеш для HTML выключен. Проверьте, нужно ли включить публичное кеширование для этой страницы.',
+      reason: 'По HTTP-кешу страница динамическая, хотя сервер отвечает очень быстро.',
     });
   } else if (partialCache) {
     pushProblem(cards, {
@@ -605,6 +655,7 @@ function buildQuickPayload(inputUrl: string, snapshot: FetchSnapshot): SpeedChec
     ttfb_ms: snapshot.ttfb_ms,
     ttfb_state: ttfbState(snapshot.ttfb_ms),
     cache_state: detectCacheState(snapshot.headers),
+    server_cache_state: detectServerCache(snapshot.headers, snapshot.html, snapshot.ttfb_ms),
     cache_control: snapshot.headers.get('cache-control'),
     content_encoding: snapshot.headers.get('content-encoding'),
     cms: detectCms(snapshot.html, snapshot.headers),

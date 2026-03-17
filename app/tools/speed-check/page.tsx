@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 type Verdict = 'ok' | 'warn' | 'fail';
 type Severity = 'critical' | 'warn' | 'improve';
 type CacheState = 'good' | 'partial' | 'none' | 'unknown';
+type ServerCacheState = 'likely' | 'not_detected';
 type TtfbState = 'fast' | 'normal' | 'slow' | 'critical' | 'unknown';
 
 type ProblemCard = {
@@ -51,6 +52,7 @@ type SpeedCheckResponse = {
       ttfb_ms: number | null;
       ttfb_state: TtfbState;
       cache_state: CacheState;
+      server_cache_state: ServerCacheState;
       cache_control: string | null;
       content_encoding: string | null;
       cms: string;
@@ -118,6 +120,12 @@ function cacheLabel(value: CacheState) {
   if (value === 'partial') return 'Частичный';
   if (value === 'none') return 'Нет';
   return 'Неизвестно';
+}
+
+
+function serverCacheLabel(value: ServerCacheState) {
+  if (value === 'likely') return 'Вероятно есть';
+  return 'Не определяется';
 }
 
 function ttfbLabel(value: TtfbState) {
@@ -308,7 +316,8 @@ export default function SpeedCheckPage() {
                       <DetailRow label="HTTP статус" value={data.details.quick.http_status} />
                       <DetailRow label="TTFB" value={formatMilliseconds(data.details.quick.ttfb_ms)} />
                       <DetailRow label="Оценка TTFB" value={ttfbLabel(data.details.quick.ttfb_state)} />
-                      <DetailRow label="Кеш" value={cacheLabel(data.details.quick.cache_state)} />
+                      <DetailRow label="HTTP-кеш" value={cacheLabel(data.details.quick.cache_state)} />
+                      <DetailRow label="Серверный кеш" value={serverCacheLabel(data.details.quick.server_cache_state)} />
                       <DetailRow
                         label="Cache-Control"
                         value={data.details.quick.cache_control || '—'}
