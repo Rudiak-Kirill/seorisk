@@ -19,9 +19,29 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            set -e
+            set -euo pipefail
+            TARGET_SHA="${{ github.sha }}"
+
             cd /srv/infra/vds-infra/stacks/seorisk
             ./deploy.sh
-            curl -fsS --max-time 20 http://127.0.0.1:3000/ >/dev/null
-            curl -fsS --max-time 20 http://127.0.0.1:3000/sign-in >/dev/null
-            curl -fsS --max-time 20 http://127.0.0.1:3000/tools/ssr-check >/dev/null
+
+            DEPLOYED_SHA="$(git -C /srv/apps/seorisk rev-parse HEAD)"
+            echo "Target SHA: ${TARGET_SHA}"
+            echo "Deployed SHA: ${DEPLOYED_SHA}"
+            test "${DEPLOYED_SHA}" = "${TARGET_SHA}"
+
+            echo "Container status:"
+            docker ps --format 'table {{.Names}}\t{{.Status}}' | grep '^seorisk-'
+
+            echo "Health checks:"
+            for path in / /sign-in /tools/ssr-check /tools/llm-check /tools/index-check /robots.txt /sitemap.xml; do
+              code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "http://127.0.0.1:3000${path}")"
+              echo "${path} -> ${code}"
+              case "${code}" in
+                200|301|302) ;;
+                *)
+                  echo "Health check failed for ${path}"
+                  exit 1
+                  ;;
+              esac
+            done
