@@ -30,5 +30,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'weekly',
       priority: 0.9,
     },
+    {
+      url: `${siteUrl}/tools/speed-check`,
+      lastModified: now,
+      changeFrequency: 'weekly',
+      priority: 0.9,
+    },
+    {
+      url: `${siteUrl}/tools/site-profile`,
+      lastModified: now,
+      changeFrequency: 'weekly',
+      priority: 0.9,
+    },
   ];
 }

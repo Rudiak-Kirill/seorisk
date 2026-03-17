@@ -16,6 +16,7 @@ const navLinks = [
   { href: '/tools/llm-check', label: 'LLM Check' },
   { href: '/tools/index-check', label: 'Index Check' },
   { href: '/tools/speed-check', label: 'Speed Check' },
+  { href: '/tools/site-profile', label: 'Site Profile' },
 ];
 
 export default function SiteHeader({ authHref, authLabel }: SiteHeaderProps) {
