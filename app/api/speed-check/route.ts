@@ -545,6 +545,13 @@ function buildProblemCards(
       action: 'Внутренний серверный кеш, вероятно, уже есть, но браузерный/CDN-кеш для HTML выключен. Проверьте, нужно ли включить публичное кеширование для этой страницы.',
       reason: 'По HTTP-кешу страница динамическая, хотя сервер отвечает очень быстро.',
     });
+  } else if (noCache) {
+    pushProblem(cards, {
+      severity: 'improve',
+      title: 'HTML-страница не кешируется по HTTP',
+      action: 'Даже при быстром TTFB стоит проверить, нужен ли публичный HTTP-кеш для HTML. Это помогает держать скорость стабильной под нагрузкой.',
+      reason: 'Сервер отдаёт Cache-Control с no-store/no-cache, поэтому браузерный и CDN-кеш для HTML выключен.',
+    });
   } else if (partialCache) {
     pushProblem(cards, {
       severity: 'improve',
