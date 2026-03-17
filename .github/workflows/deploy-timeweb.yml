@@ -22,6 +22,10 @@ jobs:
             set -euo pipefail
             TARGET_SHA="${{ github.sha }}"
 
+            git -C /srv/infra/vds-infra fetch origin
+            git -C /srv/infra/vds-infra checkout main
+            git -C /srv/infra/vds-infra reset --hard origin/main
+
             cd /srv/infra/vds-infra/stacks/seorisk
             test -x ./deploy.sh
             ./deploy.sh
