@@ -461,9 +461,6 @@ function buildProblemCards(
   const mobileCls = clsState(full.mobile?.cls ?? null);
   const mobileTbt = tbtState(full.mobile?.tbt_ms ?? null);
   const psiPartial = Boolean((full.mobile && !full.desktop) || (!full.mobile && full.desktop));
-  const noCache = quick.cache_state === 'none';
-  const partialCache = quick.cache_state === 'partial';
-  const serverCacheLikely = quick.server_cache_state === 'likely';
   const noCdn = !quick.cdn;
   const mobileGap = full.mobile_gap ?? 0;
   const hasImageIssue = hasOpportunity(full.opportunities, [
@@ -495,79 +492,42 @@ function buildProblemCards(
   }
 
   if (quick.ttfb_state === 'slow' || quick.ttfb_state === 'critical') {
-    if (noCache) {
-      if (quick.cms === 'Битрикс') {
-        pushProblem(cards, {
-          severity: 'critical',
-          title: 'Сервер отвечает медленно',
-          action: 'Включите Битрикс Композит в настройках главного модуля.',
-          reason: 'Медленный TTFB и нет кеширования.',
-        });
-      } else if (quick.cms === 'WordPress') {
-        pushProblem(cards, {
-          severity: 'critical',
-          title: 'Сервер отвечает медленно',
-          action: 'Установите кеш-плагин: WP Rocket или LiteSpeed Cache.',
-          reason: 'Медленный TTFB и нет кеширования.',
-        });
-      } else if (quick.cms === 'Next.js') {
-        pushProblem(cards, {
-          severity: 'critical',
-          title: 'Страница не кешируется',
-          action: 'Настройте Cache-Control заголовки или подключите CDN.',
-          reason: 'Медленный TTFB и нет кеширования.',
-        });
-      } else if (quick.cms === 'Тильда') {
-        pushProblem(cards, {
-          severity: 'warn',
-          title: 'Сервер отвечает медленно',
-          action: 'Для быстрого сайта рассмотрите переезд на другую платформу.',
-          reason: 'Медленный TTFB и платформа почти не управляет кешем.',
-        });
-      } else {
-        pushProblem(cards, {
-          severity: 'critical',
-          title: 'Страница не кешируется',
-          action: 'Настройте кеширование на сервере или через CDN.',
-          reason: 'Медленный TTFB и нет кеширования.',
-        });
-      }
+    if (quick.cms === 'Битрикс') {
+      pushProblem(cards, {
+        severity: 'critical',
+        title: 'Сервер отвечает медленно',
+        action: 'Проверьте Битрикс Композит, серверную нагрузку и тяжёлые запросы к базе.',
+        reason: 'TTFB выше нормы, страница долго начинает отдавать HTML.',
+      });
+    } else if (quick.cms === 'WordPress') {
+      pushProblem(cards, {
+        severity: 'critical',
+        title: 'Сервер отвечает медленно',
+        action: 'Проверьте тяжёлые плагины, object/page cache и нагрузку на PHP и базу.',
+        reason: 'TTFB выше нормы, страница долго начинает отдавать HTML.',
+      });
+    } else if (quick.cms === 'Next.js') {
+      pushProblem(cards, {
+        severity: 'critical',
+        title: 'Сервер отвечает медленно',
+        action: 'Проверьте SSR/ISR, запросы к API и базу данных на серверной стороне.',
+        reason: 'TTFB выше нормы, HTML собирается слишком долго.',
+      });
+    } else if (quick.cms === 'Тильда') {
+      pushProblem(cards, {
+        severity: 'warn',
+        title: 'Сервер отвечает медленно',
+        action: 'Платформа ограничивает тонкую оптимизацию. Проверьте тяжёлые блоки и внешний код.',
+        reason: 'TTFB выше нормы, страница долго начинает загружаться.',
+      });
     } else {
       pushProblem(cards, {
         severity: 'critical',
         title: 'Сервер отвечает медленно',
-        action: 'Кеш уже настроен — проблема в коде, базе данных или сервере. Нужна задача разработчику.',
-        reason: 'TTFB остаётся медленным даже с кешем.',
+        action: 'Проверьте сервер, базу данных и код рендера. Нужна задача разработчику.',
+        reason: 'TTFB выше нормы, страница долго начинает отдавать HTML.',
       });
     }
-  } else if (quick.ttfb_state === 'normal' && noCache && !serverCacheLikely) {
-    pushProblem(cards, {
-      severity: 'warn',
-      title: 'Страница не кешируется',
-      action: 'Сервер быстрый — добавьте кеширование для стабильности под нагрузкой.',
-      reason: 'TTFB в норме, но кеширование отсутствует.',
-    });
-  } else if (noCache && serverCacheLikely) {
-    pushProblem(cards, {
-      severity: 'improve',
-      title: 'HTML-страница не кешируется по HTTP',
-      action: 'Внутренний серверный кеш, вероятно, уже есть, но браузерный/CDN-кеш для HTML выключен. Проверьте, нужно ли включить публичное кеширование для этой страницы.',
-      reason: 'По HTTP-кешу страница динамическая, хотя сервер отвечает очень быстро.',
-    });
-  } else if (noCache) {
-    pushProblem(cards, {
-      severity: 'improve',
-      title: 'HTML-страница не кешируется по HTTP',
-      action: 'Даже при быстром TTFB стоит проверить, нужен ли публичный HTTP-кеш для HTML. Это помогает держать скорость стабильной под нагрузкой.',
-      reason: 'Сервер отдаёт Cache-Control с no-store/no-cache, поэтому браузерный и CDN-кеш для HTML выключен.',
-    });
-  } else if (partialCache) {
-    pushProblem(cards, {
-      severity: 'improve',
-      title: 'Кеш настроен частично',
-      action: 'Добавьте полноценный Cache-Control с max-age или CDN-кеш.',
-      reason: 'Есть только ETag/Last-Modified без явного max-age.',
-    });
   }
 
   if ((mobileLcp === 'slow' || mobileLcp === 'critical') && hasImageIssue) {
@@ -643,7 +603,7 @@ function buildProblemCards(
     return {
       verdict: 'fail',
       verdict_title: 'Есть проблемы со скоростью',
-      verdict_summary: 'Сначала исправьте сервер, кеширование и крупные блокирующие узкие места.',
+      verdict_summary: 'Сначала исправьте сервер и крупные блокирующие узкие места.',
       problem_cards: cards,
     };
   }
@@ -661,7 +621,7 @@ function buildProblemCards(
     return {
       verdict: 'ok',
       verdict_title: 'Сайт загружается быстро',
-      verdict_summary: 'Критичных проблем нет, но есть небольшие улучшения по кешированию и инфраструктуре.',
+      verdict_summary: 'Критичных проблем нет, но есть небольшие улучшения по фронтенду и инфраструктуре.',
       problem_cards: cards,
     };
   }
