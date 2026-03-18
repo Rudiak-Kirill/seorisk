@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 const REQUEST_TIMEOUT_MS = 90_000;
+const INTERNAL_COMPARE_ORIGIN = (process.env.INTERNAL_COMPARE_ORIGIN || '').replace(/\/+$/, '');
 
 type SiteProfileResponse = {
   ok: boolean;
@@ -178,31 +179,54 @@ function isAccessible(snapshot?: { http_code: number; access_state?: string | nu
   return snapshot.http_code === 200 && (snapshot.access_state || 'ok') === 'ok';
 }
 
-async function postJson<T>(origin: string, path: string, body: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T | null> {
+function getInternalOrigins(req: Request) {
+  const requestOrigin = new URL(req.url).origin.replace(/\/+$/, '');
+  const appBaseUrl = (process.env.BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '');
+
+  return Array.from(
+    new Set(
+      [
+        INTERNAL_COMPARE_ORIGIN,
+        'http://127.0.0.1:3000',
+        'http://localhost:3000',
+        requestOrigin,
+        appBaseUrl,
+      ].filter(Boolean)
+    )
+  );
+}
+
+async function postJson<T>(origins: string[], path: string, body: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(new URL(path, origin), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-compare-internal': '1',
-      },
-      body: JSON.stringify(body),
-      cache: 'no-store',
-      signal: controller.signal,
-    });
+    for (const origin of origins) {
+      try {
+        const response = await fetch(new URL(path, origin), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-compare-internal': '1',
+          },
+          body: JSON.stringify(body),
+          cache: 'no-store',
+          signal: controller.signal,
+        });
 
-    const text = await response.text();
-    if (!text) return null;
+        const text = await response.text();
+        if (!text) continue;
 
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      return null;
+        try {
+          return JSON.parse(text) as T;
+        } catch {
+          continue;
+        }
+      } catch {
+        continue;
+      }
     }
-  } catch {
+
     return null;
   } finally {
     clearTimeout(timeoutId);
@@ -218,17 +242,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Неверный URL' }, { status: 400 });
     }
 
-    const origin = new URL(req.url).origin;
+    const origins = getInternalOrigins(req);
     const domain = new URL(siteUrl).hostname.toLowerCase().replace(/^www\./, '');
 
     const [siteProfileResult, speedResult, ssrResult, indexResult, llmResult, subdomainResult] =
       await Promise.allSettled([
-        postJson<SiteProfileResponse>(origin, '/api/site-profile', { url: siteUrl, phase: 'full' }),
-        postJson<SpeedCheckResponse>(origin, '/api/speed-check', { url: siteUrl, phase: 'full' }),
-        postJson<SsrCheckResponse>(origin, '/api/ssr-check', { url: siteUrl }),
-        postJson<IndexCheckResponse>(origin, '/api/index-check', { url: siteUrl }),
-        postJson<LlmCheckResponse>(origin, '/api/llm-check', { url: siteUrl }),
-        postJson<SubdomainCheckResponse>(origin, '/api/subdomain-check', { domain }),
+        postJson<SiteProfileResponse>(origins, '/api/site-profile', { url: siteUrl, phase: 'full' }),
+        postJson<SpeedCheckResponse>(origins, '/api/speed-check', { url: siteUrl, phase: 'full' }),
+        postJson<SsrCheckResponse>(origins, '/api/ssr-check', { url: siteUrl }),
+        postJson<IndexCheckResponse>(origins, '/api/index-check', { url: siteUrl }),
+        postJson<LlmCheckResponse>(origins, '/api/llm-check', { url: siteUrl }),
+        postJson<SubdomainCheckResponse>(origins, '/api/subdomain-check', { domain }),
       ]);
 
     const errors: string[] = [];

@@ -365,6 +365,25 @@ function getHostLabel(url: string) {
   }
 }
 
+function errorLabel(code: string) {
+  switch (code) {
+    case 'site_profile':
+      return 'Site Profile';
+    case 'speed':
+      return 'Speed Check';
+    case 'ssr':
+      return 'SSR Check';
+    case 'index':
+      return 'Index Check';
+    case 'llm':
+      return 'LLM Check';
+    case 'subdomains':
+      return 'Subdomain Check';
+    default:
+      return code;
+  }
+}
+
 function compareProgressPercent(items: ProgressItem[]) {
   if (!items.length) return 0;
   const done = items.filter((item) => item.status !== 'pending').length;
@@ -571,6 +590,21 @@ export default function ComparePage() {
 
           {orderedSites.length ? (
             <>
+              {orderedSites.some((site) => site.errors.length > 0) ? (
+                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <div className="font-medium">Часть данных не удалось получить</div>
+                  <div className="mt-2 space-y-1">
+                    {orderedSites
+                      .filter((site) => site.errors.length > 0)
+                      .map((site) => (
+                        <div key={`${site.domain}-errors`}>
+                          {site.domain}: {site.errors.map(errorLabel).join(', ')}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mt-8 overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
                 <table className="min-w-full divide-y divide-gray-200 text-sm">
                   <thead className="bg-gray-50">
