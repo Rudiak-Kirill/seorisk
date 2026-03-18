@@ -7,6 +7,8 @@ const BROWSER_UA =
   '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
+const LLM_RELAY_URL = (process.env.LLM_RELAY_URL || '').replace(/\/+$/, '');
+const LLM_RELAY_SECRET = process.env.LLM_RELAY_SECRET || '';
 const FETCH_TIMEOUT_MS = 15_000;
 const SEARCH_TIMEOUT_MS = 12_000;
 const MAX_SITEMAP_URLS = 200_000;
@@ -1068,6 +1070,32 @@ async function callLlmJson<T>(system: string, user: string): Promise<T | null> {
   }
 }
 
+async function callRelayJson<T>(path: string, payload: Record<string, unknown>): Promise<T | null> {
+  if (!LLM_RELAY_URL || !LLM_RELAY_SECRET) return null;
+
+  try {
+    const response = await fetchWithTimeout(
+      `${LLM_RELAY_URL}${path}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-relay-secret': LLM_RELAY_SECRET,
+        },
+        body: JSON.stringify(payload),
+      },
+      25_000
+    );
+
+    if (!response.ok) return null;
+    const data = (await response.json()) as { ok?: boolean; data?: T };
+    if (data.ok !== true || !data.data) return null;
+    return data.data;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeValue(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : 'не удалось определить';
 }
@@ -1079,34 +1107,44 @@ async function classifySiteWithLlm(input: {
   menuText: string;
   previewText: string;
 }) {
-  const result = await callLlmJson<Partial<SiteClassification>>(
-    'Ты определяешь тип сайта по кратким данным главной страницы. Отвечай только JSON без пояснений. Если не уверен — пиши "не удалось определить".',
-    JSON.stringify(
-      {
-        task: 'Определи тип сайта, аудиторию, тематику и регион.',
-        required_fields: ['site_type', 'audience', 'topic', 'region'],
-        allowed_site_types: [
-          'интернет-магазин',
-          'SaaS-сервис',
-          'блог',
-          'лендинг',
-          'корпоративный сайт',
-          'агрегатор',
-          'не удалось определить',
-        ],
-        allowed_audience: ['B2B', 'B2C', 'смешанная', 'не удалось определить'],
-        source: {
-          title: input.title,
-          h1: input.h1,
-          meta_description: input.metaDescription,
-          menu_text: input.menuText,
-          preview_text: input.previewText,
+  const payload = {
+    title: input.title,
+    h1: input.h1,
+    metaDescription: input.metaDescription,
+    menuText: input.menuText,
+    previewText: input.previewText,
+  };
+
+  const result =
+    (await callRelayJson<Partial<SiteClassification>>('/api/site-profile/classify', payload)) ||
+    (await callLlmJson<Partial<SiteClassification>>(
+      'Ты определяешь тип сайта по кратким данным главной страницы. Отвечай только JSON без пояснений. Если не уверен — пиши "не удалось определить".',
+      JSON.stringify(
+        {
+          task: 'Определи тип сайта, аудиторию, тематику и регион.',
+          required_fields: ['site_type', 'audience', 'topic', 'region'],
+          allowed_site_types: [
+            'интернет-магазин',
+            'SaaS-сервис',
+            'блог',
+            'лендинг',
+            'корпоративный сайт',
+            'агрегатор',
+            'не удалось определить',
+          ],
+          allowed_audience: ['B2B', 'B2C', 'смешанная', 'не удалось определить'],
+          source: {
+            title: input.title,
+            h1: input.h1,
+            meta_description: input.metaDescription,
+            menu_text: input.menuText,
+            preview_text: input.previewText,
+          },
         },
-      },
-      null,
-      2
-    )
-  );
+        null,
+        2
+      )
+    ));
 
   return {
     site_type: sanitizeValue(result?.site_type),
@@ -1167,17 +1205,19 @@ async function summarizeProfileWithLlm(input: {
     registrar: string;
   };
 }) {
-  const result = await callLlmJson<{ summary?: string }>(
-    'Ты пишешь краткий профиль сайта для руководителя. Нужны 2-3 предложения простым языком, без технички и без маркированных списков. Отвечай только JSON.',
-    JSON.stringify(
-      {
-        required_field: 'summary',
-        input,
-      },
-      null,
-      2
-    )
-  );
+  const result =
+    (await callRelayJson<{ summary?: string }>('/api/site-profile/summarize', input)) ||
+    (await callLlmJson<{ summary?: string }>(
+      'Ты пишешь краткий профиль сайта для руководителя. Нужны 2-3 предложения простым языком, без технички и без маркированных списков. Отвечай только JSON.',
+      JSON.stringify(
+        {
+          required_field: 'summary',
+          input,
+        },
+        null,
+        2
+      )
+    ));
 
   if (typeof result?.summary === 'string' && result.summary.trim()) {
     return result.summary.trim();
