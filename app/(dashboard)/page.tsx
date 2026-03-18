@@ -42,12 +42,12 @@ const tools = [
     href: '/tools/index-check',
   },
   {
-    title: 'Speed Check (Бета)',
+    title: 'Speed Check',
     description: 'TTFB, кеширование и Lighthouse без лишней технички',
     href: '/tools/speed-check',
   },
   {
-    title: 'Site Profile (Бета)',
+    title: 'Site Profile',
     description: 'Тип сайта, структура sitemap и коммерческие сигналы в одном экране',
     href: '/tools/site-profile',
   },
