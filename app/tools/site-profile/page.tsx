@@ -171,26 +171,16 @@ export default function SiteProfilePage() {
     ? [
         { label: 'Коммерческих', group: data.structure.commercial },
         { label: 'Информационных', group: data.structure.informational },
-        ...(data.structure.application.count && data.structure.application.count > 0
-          ? [{ label: 'Приложение', group: data.structure.application }]
-          : []),
-        ...(data.structure.search.count && data.structure.search.count > 0
-          ? [{ label: 'Поиск', group: data.structure.search }]
-          : []),
-        ...(data.structure.documents.count && data.structure.documents.count > 0
-          ? [{ label: 'Документы', group: data.structure.documents }]
-          : []),
-        ...(data.structure.video.count && data.structure.video.count > 0
-          ? [{ label: 'Видео/вебинары', group: data.structure.video }]
-          : []),
-        ...(data.structure.faq.count && data.structure.faq.count > 0
-          ? [{ label: 'FAQ', group: data.structure.faq }]
-          : []),
+        { label: 'Приложение', group: data.structure.application },
+        { label: 'Поиск', group: data.structure.search },
+        { label: 'Документы', group: data.structure.documents },
+        { label: 'Видео/вебинары', group: data.structure.video },
+        { label: 'FAQ', group: data.structure.faq },
         { label: 'Служебных', group: data.structure.service },
-        ...(data.structure.unknown.count && data.structure.unknown.count > 0
-          ? [{ label: 'Не определено', group: data.structure.unknown }]
-          : []),
+        { label: 'Не определено', group: data.structure.unknown },
       ]
+        .filter(({ group }) => (group.count ?? 0) > 0)
+        .sort((a, b) => (b.group.count ?? 0) - (a.group.count ?? 0))
     : [];
 
   const onCheck = async () => {
@@ -362,14 +352,6 @@ export default function SiteProfilePage() {
                 </div>
 
                 <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-gray-500">В индексе Яндекс</div>
-                    <div className="mt-1 text-sm font-medium text-gray-900">{data.structure.yandex_index}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-gray-500">В индексе Google</div>
-                    <div className="mt-1 text-sm font-medium text-gray-900">{data.structure.google_index}</div>
-                  </div>
                   <div>
                     <div className="text-xs uppercase tracking-wide text-gray-500">ИКС Яндекс</div>
                     <div className="mt-1 text-sm font-medium text-gray-900">{data.structure.yandex_iks}</div>

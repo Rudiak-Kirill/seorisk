@@ -780,6 +780,20 @@ function createEmptyWhois(rawSource: string) {
   };
 }
 
+function getMenuLinkPriority(link: MenuLink) {
+  const source = `${link.label} ${link.url}`.toLowerCase();
+  if (/(contact|контакт|about|о нас|company|requisite|реквизит|legal|privacy|policy|oferta|terms|company)/i.test(source)) {
+    return 5;
+  }
+  if (/(faq|вопрос|question|docs|documentation|help|поддержк)/i.test(source)) {
+    return 4;
+  }
+  if (/(service|услуг|catalog|каталог|product|решени|pricing|тариф)/i.test(source)) {
+    return 3;
+  }
+  return 1;
+}
+
 function calculateAgeYears(createdAt: string | null) {
   const createdDate = createdAt ? new Date(createdAt) : null;
   if (!createdDate || Number.isNaN(createdDate.getTime())) return null;
@@ -1117,6 +1131,8 @@ function detectSiteSignals(pages: PageDoc[]): DetectedSiteSignals {
   const requisitesFound =
     /\bинн\b/i.test(textLower) ||
     /\bогрн\b/i.test(textLower) ||
+    /\bкпп\b/i.test(textLower) ||
+    /\b(ооо|ао|зао|пао|ип)\b/i.test(textLower) ||
     /\b\d{10}\b/.test(text) ||
     /\b\d{12}\b/.test(text) ||
     /\b\d{13}\b/.test(text) ||
@@ -1301,7 +1317,9 @@ function deriveHeuristicProfile(input: {
   const regionMatch = [input.title, input.h1, input.metaDescription, input.previewText].find((value) =>
     cityRegex.test(value)
   );
-  const region = regionMatch?.match(cityRegex)?.[1] || 'не удалось определить';
+  const region =
+    regionMatch?.match(cityRegex)?.[1] ||
+    (/(росси|рф\b|44-фз|госзакуп)/i.test(haystack) ? 'Россия' : 'не удалось определить');
 
   return {
     site_type: siteType,
@@ -1496,10 +1514,6 @@ function buildFallbackSummary(input: {
   if (input.structure.unknown.count && input.structure.unknown.count > 0) {
     gaps.push(`${new Intl.NumberFormat('ru-RU').format(input.structure.unknown.count)} страниц не классифицированы`);
   }
-  if (input.structure.yandex_index === 'не удалось получить' || input.structure.google_index === 'не удалось получить') {
-    gaps.push('данные индекса недоступны');
-  }
-
   if (gaps.length) {
     sentences.push(`Пробелы: ${gaps.slice(0, 3).join(', ')}.`);
   }
@@ -1517,14 +1531,20 @@ async function summarizeProfileWithLlm(input: {
     registrar: string;
   };
 }) {
+  const { google_index: _googleIndex, yandex_index: _yandexIndex, ...structureForSummary } = input.structure;
+  const summaryInput = {
+    ...input,
+    structure: structureForSummary,
+  };
+
   const result =
-    (await callRelayJson<{ summary?: string }>('/api/site-profile/summarize', input)) ||
+    (await callRelayJson<{ summary?: string }>('/api/site-profile/summarize', summaryInput)) ||
     (await callLlmJson<{ summary?: string }>(
       SITE_PROFILE_SUMMARY_PROMPT,
       JSON.stringify(
         {
           required_field: 'summary',
-          input,
+          input: summaryInput,
         },
         null,
         2
@@ -1607,7 +1627,9 @@ function buildStructureSummary(entries: SitemapUrlEntry[]) {
 }
 
 async function fetchInternalPages(links: MenuLink[]) {
-  const selected = links.slice(0, 3);
+  const selected = [...links]
+    .sort((a, b) => getMenuLinkPriority(b) - getMenuLinkPriority(a))
+    .slice(0, 6);
   const pages = await Promise.all(
     selected.map(async (link) => {
       const response = await fetchText(link.url);
