@@ -171,13 +171,25 @@ export default function SiteProfilePage() {
     ? [
         { label: 'Коммерческих', group: data.structure.commercial },
         { label: 'Информационных', group: data.structure.informational },
-        { label: 'Приложение', group: data.structure.application },
-        { label: 'Поиск', group: data.structure.search },
-        { label: 'Документы', group: data.structure.documents },
-        { label: 'Видео/вебинары', group: data.structure.video },
-        { label: 'FAQ', group: data.structure.faq },
+        ...(data.structure.application.count && data.structure.application.count > 0
+          ? [{ label: 'Приложение', group: data.structure.application }]
+          : []),
+        ...(data.structure.search.count && data.structure.search.count > 0
+          ? [{ label: 'Поиск', group: data.structure.search }]
+          : []),
+        ...(data.structure.documents.count && data.structure.documents.count > 0
+          ? [{ label: 'Документы', group: data.structure.documents }]
+          : []),
+        ...(data.structure.video.count && data.structure.video.count > 0
+          ? [{ label: 'Видео/вебинары', group: data.structure.video }]
+          : []),
+        ...(data.structure.faq.count && data.structure.faq.count > 0
+          ? [{ label: 'FAQ', group: data.structure.faq }]
+          : []),
         { label: 'Служебных', group: data.structure.service },
-        { label: 'Не определено', group: data.structure.unknown },
+        ...(data.structure.unknown.count && data.structure.unknown.count > 0
+          ? [{ label: 'Не определено', group: data.structure.unknown }]
+          : []),
       ]
     : [];
 
@@ -319,7 +331,9 @@ export default function SiteProfilePage() {
                 <div className="mt-4 text-sm text-gray-700">
                   Страниц в sitemap:{' '}
                   <span className="font-semibold text-gray-900">
-                    {data.structure.total_urls ?? 'не удалось определить'}
+                    {data.structure.total_urls !== null
+                      ? formatNumber(data.structure.total_urls)
+                      : 'не удалось определить'}
                   </span>
                 </div>
 

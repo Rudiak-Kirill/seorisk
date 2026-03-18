@@ -1,3 +1,4 @@
+import { createConnection } from 'node:net';
 import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -13,6 +14,22 @@ const FETCH_TIMEOUT_MS = 15_000;
 const SEARCH_TIMEOUT_MS = 12_000;
 const MAX_SITEMAP_URLS = 200_000;
 const MAX_SITEMAP_FILES = 200;
+const SITE_PROFILE_SUMMARY_PROMPT = [
+  'Ты SEO-аналитик. Напиши краткий аналитический вывод о сайте на основе данных. 2-3 предложения.',
+  '',
+  'Правила:',
+  '- Первое предложение: тип + тематика + аудитория',
+  '- Второе предложение: что хорошо (факты, не похвала)',
+  '- Третье предложение: главные пробелы (конкретно)',
+  '- Не используй слова: удобный, широкий, активно, качественный, отличный',
+  '- Говори фактами: цифры, конкретные проблемы',
+  '- Если есть пробелы — называй их прямо',
+  '',
+  "Пример правильного вердикта: 'B2B интернет-магазин строительных материалов, Россия. Коммерческих страниц 85% — хорошее покрытие каталога. Пробелы: нет чат-виджета, 124 страницы не классифицированы, данные индекса недоступны.'",
+  "Пример неправильного вердикта: 'Сайт предлагает широкий выбор товаров для бизнеса. Имеет удобный интерфейс с корзиной и формой заявки. Активно обновляется и содержит актуальную информацию.'",
+  '',
+  'Отвечай только JSON.',
+].join('\n');
 
 type Phase = 'quick' | 'full';
 type Status = 'ok' | 'warn' | 'fail';
@@ -738,7 +755,168 @@ function formatDomainAge(years: number | null) {
   return `${rounded} лет`;
 }
 
-async function fetchDomainWhois(domain: string) {
+function createEmptyWhois(rawSource: string) {
+  return {
+    createdAt: null,
+    ageYears: null,
+    registrar: 'не удалось определить',
+    rawSource,
+  };
+}
+
+function calculateAgeYears(createdAt: string | null) {
+  const createdDate = createdAt ? new Date(createdAt) : null;
+  if (!createdDate || Number.isNaN(createdDate.getTime())) return null;
+
+  const ageYears = (Date.now() - createdDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+  return Number.isFinite(ageYears) ? ageYears : null;
+}
+
+function normalizeWhoisDate(rawValue: string | null) {
+  if (!rawValue) return null;
+  const value = rawValue.trim();
+  if (!value) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/i.test(value)) {
+    const normalized = value.includes('T') ? value : `${value}T00:00:00Z`;
+    return Number.isNaN(new Date(normalized).getTime()) ? null : normalized;
+  }
+
+  const dotted = value.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  if (dotted) {
+    const [, day, month, year] = dotted;
+    const normalized = `${year}-${month}-${day}T00:00:00Z`;
+    return Number.isNaN(new Date(normalized).getTime()) ? null : normalized;
+  }
+
+  const textDate = Date.parse(value);
+  if (!Number.isNaN(textDate)) {
+    return new Date(textDate).toISOString();
+  }
+
+  return null;
+}
+
+function extractWhoisRegistrar(text: string) {
+  const patterns = [
+    /registrar\s*[:>]\s*([^\n<]+)/i,
+    /Регистратор\s*[:>]\s*([^\n<]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return decodeHtmlEntities(stripHtml(match[1])).trim() || 'не удалось определить';
+    }
+  }
+
+  return 'не удалось определить';
+}
+
+function extractWhoisCreatedAt(text: string) {
+  const patterns = [
+    /created\s*[:>]\s*([0-9TZ:\-\. ]+)/i,
+    /registered\s*[:>]\s*([0-9TZ:\-\. ]+)/i,
+    /Дата регистрации\s*[:>]\s*([0-9TZ:\-\. ]+)/i,
+    /created[^0-9]*(\d{2}\.\d{2}\.\d{4}|\d{4}-\d{2}-\d{2}(?:T[0-9:]+Z)?)/i,
+    /registered[^0-9]*(\d{2}\.\d{2}\.\d{4}|\d{4}-\d{2}-\d{2}(?:T[0-9:]+Z)?)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const normalized = normalizeWhoisDate(match?.[1] || null);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+async function fetchRuWhoisFromHttp(url: string, rawSource: string) {
+  try {
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
+          'User-Agent': BROWSER_UA,
+        },
+      },
+      SEARCH_TIMEOUT_MS
+    );
+
+    if (!response.ok) return createEmptyWhois(rawSource);
+
+    const text = await response.text();
+    const createdAt = extractWhoisCreatedAt(text);
+    const registrar = extractWhoisRegistrar(text);
+
+    return {
+      createdAt,
+      ageYears: calculateAgeYears(createdAt),
+      registrar,
+      rawSource,
+    };
+  } catch {
+    return createEmptyWhois(rawSource);
+  }
+}
+
+async function fetchRuWhoisViaTcinet(domain: string) {
+  return await new Promise<{
+    createdAt: string | null;
+    ageYears: number | null;
+    registrar: string;
+    rawSource: string;
+  }>((resolve) => {
+    const socket = createConnection({ host: 'whois.tcinet.ru', port: 43 });
+    let raw = '';
+    let settled = false;
+
+    const finish = (payload: {
+      createdAt: string | null;
+      ageYears: number | null;
+      registrar: string;
+      rawSource: string;
+    }) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(payload);
+    };
+
+    const timer = setTimeout(() => finish(createEmptyWhois('whois.tcinet.ru')), SEARCH_TIMEOUT_MS);
+
+    socket.setEncoding('utf8');
+    socket.on('connect', () => {
+      socket.write(`${domain}\r\n`);
+    });
+    socket.on('data', (chunk) => {
+      raw += chunk;
+    });
+    socket.on('end', () => {
+      clearTimeout(timer);
+      const createdAt = extractWhoisCreatedAt(raw);
+      const registrar = extractWhoisRegistrar(raw);
+      finish({
+        createdAt,
+        ageYears: calculateAgeYears(createdAt),
+        registrar,
+        rawSource: 'whois.tcinet.ru',
+      });
+    });
+    socket.on('error', () => {
+      clearTimeout(timer);
+      finish(createEmptyWhois('whois.tcinet.ru'));
+    });
+    socket.on('timeout', () => {
+      clearTimeout(timer);
+      finish(createEmptyWhois('whois.tcinet.ru'));
+    });
+  });
+}
+
+async function fetchRdapWhois(domain: string) {
   try {
     const response = await fetchWithTimeout(
       `https://rdap.org/domain/${encodeURIComponent(domain)}`,
@@ -753,12 +931,7 @@ async function fetchDomainWhois(domain: string) {
     );
 
     if (!response.ok) {
-      return {
-        createdAt: null,
-        ageYears: null,
-        registrar: 'не удалось определить',
-        rawSource: 'rdap',
-      };
+      return createEmptyWhois('rdap');
     }
 
     const data = (await response.json()) as Record<string, unknown>;
@@ -766,7 +939,9 @@ async function fetchDomainWhois(domain: string) {
     const registrationEvent = events.find(
       (event) => String(event.eventAction || '').toLowerCase() === 'registration'
     );
-    const createdAt = typeof registrationEvent?.eventDate === 'string' ? registrationEvent.eventDate : null;
+    const createdAt = normalizeWhoisDate(
+      typeof registrationEvent?.eventDate === 'string' ? registrationEvent.eventDate : null
+    );
 
     const registrarEntity = Array.isArray(data.entities)
       ? (data.entities as Record<string, unknown>[]).find((entity) =>
@@ -781,26 +956,40 @@ async function fetchDomainWhois(domain: string) {
         ? extractRegistrarName(registrarEntity.vcardArray)
         : 'не удалось определить';
 
-    const createdDate = createdAt ? new Date(createdAt) : null;
-    const ageYears =
-      createdDate && !Number.isNaN(createdDate.getTime())
-        ? (Date.now() - createdDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
-        : null;
-
     return {
-      createdAt: createdAt || null,
-      ageYears: ageYears !== null && Number.isFinite(ageYears) ? ageYears : null,
+      createdAt,
+      ageYears: calculateAgeYears(createdAt),
       registrar,
       rawSource: 'rdap',
     };
   } catch {
-    return {
-      createdAt: null,
-      ageYears: null,
-      registrar: 'не удалось определить',
-      rawSource: 'rdap',
-    };
+    return createEmptyWhois('rdap');
   }
+}
+
+async function fetchDomainWhois(domain: string) {
+  const lowerDomain = domain.toLowerCase();
+  const isRuZone =
+    lowerDomain.endsWith('.ru') || lowerDomain.endsWith('.рф') || lowerDomain.endsWith('.xn--p1ai');
+
+  if (isRuZone) {
+    const nic = await fetchRuWhoisFromHttp(
+      `https://www.nic.ru/whois/?query=${encodeURIComponent(domain)}`,
+      'nic.ru'
+    );
+    if (nic.createdAt) return nic;
+
+    const reg = await fetchRuWhoisFromHttp(
+      `https://www.reg.ru/whois/?dname=${encodeURIComponent(domain)}`,
+      'reg.ru'
+    );
+    if (reg.createdAt) return reg;
+
+    const tcinet = await fetchRuWhoisViaTcinet(domain);
+    if (tcinet.createdAt) return tcinet;
+  }
+
+  return await fetchRdapWhois(domain);
 }
 
 function extractRegistrarName(vcardArray: unknown) {
@@ -1196,35 +1385,40 @@ function buildFallbackSummary(input: {
   technical: SiteProfileResponse['technical'];
 }) {
   const sentences: string[] = [];
-  const parts = [
-    input.classification.site_type,
-    input.classification.audience,
+  const firstSentenceParts = [
+    input.classification.audience !== 'не удалось определить' ? input.classification.audience : null,
+    input.classification.site_type !== 'не удалось определить' ? input.classification.site_type : null,
+    input.classification.topic !== 'не удалось определить' ? input.classification.topic : null,
     input.classification.region !== 'не удалось определить' ? input.classification.region : null,
   ].filter(Boolean);
 
-  sentences.push(
-    `${parts.join(', ') || 'Сайт'}${input.classification.topic !== 'не удалось определить' ? ` — ${input.classification.topic}` : ''}.`
-  );
+  sentences.push(firstSentenceParts.length ? `${firstSentenceParts.join(', ')}.` : 'Тип сайта определить не удалось.');
 
   if (input.structure.sitemap_found && input.structure.total_urls !== null) {
     const topBuckets = getTopStructureBuckets(input.structure)
+      .slice(0, 2)
       .map((item) => `${sitemapBucketLabels[item.key]} ${item.percent}%`)
       .join(', ');
 
     sentences.push(
-      `В sitemap найдено ${new Intl.NumberFormat('ru-RU').format(input.structure.total_urls)} URL${topBuckets ? `: ${topBuckets}.` : '.'}`
+      `В sitemap найдено ${new Intl.NumberFormat('ru-RU').format(input.structure.total_urls)} URL${topBuckets ? `; основные разделы: ${topBuckets}.` : '.'}`
     );
   } else {
-    sentences.push('Sitemap не найден — структуру сайта определить удалось только частично.');
+    sentences.push('Sitemap не найден, структура сайта определена частично.');
   }
 
   const gaps: string[] = [];
   if (input.commerce.important.items.find((item) => item.label === 'Адрес')?.status !== 'ok') gaps.push('адрес не найден');
   if (input.commerce.important.items.find((item) => item.label === 'Отзывы')?.status !== 'ok') gaps.push('отзывы не найдены');
-  if (input.technical.cms !== 'не удалось определить') gaps.push(`CMS: ${input.technical.cms}`);
+  if (input.structure.unknown.count && input.structure.unknown.count > 0) {
+    gaps.push(`${new Intl.NumberFormat('ru-RU').format(input.structure.unknown.count)} страниц не классифицированы`);
+  }
+  if (input.structure.yandex_index === 'не удалось получить' || input.structure.google_index === 'не удалось получить') {
+    gaps.push('данные индекса недоступны');
+  }
 
   if (gaps.length) {
-    sentences.push(`Главные пробелы: ${gaps.slice(0, 3).join(', ')}.`);
+    sentences.push(`Пробелы: ${gaps.slice(0, 3).join(', ')}.`);
   }
 
   return sentences.join(' ');
@@ -1243,7 +1437,7 @@ async function summarizeProfileWithLlm(input: {
   const result =
     (await callRelayJson<{ summary?: string }>('/api/site-profile/summarize', input)) ||
     (await callLlmJson<{ summary?: string }>(
-      'Ты пишешь краткий профиль сайта для руководителя. Нужны 2-3 предложения простым языком, без технички и без маркированных списков. Отвечай только JSON.',
+      SITE_PROFILE_SUMMARY_PROMPT,
       JSON.stringify(
         {
           required_field: 'summary',
