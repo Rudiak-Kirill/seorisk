@@ -158,56 +158,65 @@ function detectCms(html: string, headers: Headers) {
   const server = (headers.get('server') || '').toLowerCase();
   const poweredBy = (headers.get('x-powered-by') || '').toLowerCase();
   const htmlLower = html.toLowerCase();
-
-  if (
+  const hasBitrix =
     /bitrix/i.test(server) ||
     /bitrix/i.test(poweredBy) ||
     htmlLower.includes('/bitrix/') ||
     htmlLower.includes('bx.setcsslist') ||
-    headers.has('x-powered-cms')
-  ) {
-    return 'Битрикс';
-  }
+    headers.has('x-powered-cms');
 
-  if (
+  const hasWordPress =
     htmlLower.includes('wp-content') ||
     htmlLower.includes('wp-includes') ||
     htmlLower.includes('content="wordpress') ||
-    headers.has('x-pingback')
-  ) {
-    return 'WordPress';
-  }
+    headers.has('x-pingback');
 
-  if (
+  const hasNext =
     /next\.js/i.test(poweredBy) ||
     htmlLower.includes('/_next/static/') ||
-    htmlLower.includes('__next_data__')
-  ) {
-    return 'Next.js';
-  }
+    htmlLower.includes('__next_data__') ||
+    htmlLower.includes('__next_f') ||
+    htmlLower.includes('next-route-announcer');
 
-  if (
+  const hasReact =
+    hasNext ||
+    htmlLower.includes('react-dom') ||
+    htmlLower.includes('data-reactroot') ||
+    htmlLower.includes('__react_devtools_global_hook__') ||
+    htmlLower.includes('/static/js/main.') ||
+    htmlLower.includes('/assets/index-');
+
+  const hasTilda =
     htmlLower.includes('tilda') ||
     htmlLower.includes('tildacdn') ||
-    htmlLower.includes('t-records')
-  ) {
-    return 'Тильда';
-  }
+    htmlLower.includes('t-records');
 
-  if (
+  const hasShopify =
     /shopify/i.test(server) ||
     headers.has('x-shopify-stage') ||
-    htmlLower.includes('cdn.shopify.com')
-  ) {
-    return 'Shopify';
+    htmlLower.includes('cdn.shopify.com');
+
+  const hasSpaShell =
+    (htmlLower.includes('id="root"') || htmlLower.includes("id='root'") || htmlLower.includes('id="app"')) &&
+    htmlLower.includes('<script');
+
+  const primaryCms =
+    (hasBitrix && 'Битрикс') ||
+    (hasWordPress && 'WordPress') ||
+    (hasShopify && 'Shopify') ||
+    (hasTilda && 'Тильда') ||
+    null;
+
+  const frontendLayer = hasNext ? 'Next.js' : hasReact ? 'React' : hasSpaShell ? 'SPA' : null;
+
+  if (primaryCms && frontendLayer) {
+    return `${primaryCms} + ${frontendLayer}`;
   }
 
-  if (
-    (htmlLower.includes('id="root"') || htmlLower.includes("id='root'") || htmlLower.includes('id="app"')) &&
-    htmlLower.includes('<script')
-  ) {
-    return 'SPA';
-  }
+  if (primaryCms) return primaryCms;
+  if (hasNext) return 'Next.js';
+  if (hasReact) return 'React';
+  if (hasSpaShell) return 'SPA';
 
   return 'Другой';
 }

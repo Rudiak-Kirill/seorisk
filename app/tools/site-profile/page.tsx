@@ -44,6 +44,11 @@ type SiteProfileResponse = {
     total_urls: number | null;
     commercial: CountGroup;
     informational: CountGroup;
+    application: CountGroup;
+    search: CountGroup;
+    documents: CountGroup;
+    video: CountGroup;
+    faq: CountGroup;
     service: CountGroup;
     unknown: CountGroup;
     depth: {
@@ -156,6 +161,11 @@ export default function SiteProfilePage() {
     ? [
         { label: 'Коммерческих', group: data.structure.commercial },
         { label: 'Информационных', group: data.structure.informational },
+        { label: 'Приложение', group: data.structure.application },
+        { label: 'Поиск', group: data.structure.search },
+        { label: 'Документы', group: data.structure.documents },
+        { label: 'Видео/вебинары', group: data.structure.video },
+        { label: 'FAQ', group: data.structure.faq },
         { label: 'Служебных', group: data.structure.service },
         { label: 'Не определено', group: data.structure.unknown },
       ]

@@ -9,12 +9,21 @@ const BROWSER_UA =
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const FETCH_TIMEOUT_MS = 15_000;
 const SEARCH_TIMEOUT_MS = 12_000;
-const MAX_SITEMAP_URLS = 50_000;
-const MAX_SITEMAP_FILES = 50;
+const MAX_SITEMAP_URLS = 200_000;
+const MAX_SITEMAP_FILES = 200;
 
 type Phase = 'quick' | 'full';
 type Status = 'ok' | 'warn' | 'fail';
-type SitemapBucket = 'commercial' | 'informational' | 'service' | 'unknown';
+type SitemapBucket =
+  | 'commercial'
+  | 'informational'
+  | 'application'
+  | 'search'
+  | 'documents'
+  | 'video'
+  | 'faq'
+  | 'service'
+  | 'unknown';
 
 type TextFetchResult = {
   ok: boolean;
@@ -86,6 +95,11 @@ type SiteProfileResponse = {
     total_urls: number | null;
     commercial: CountGroup;
     informational: CountGroup;
+    application: CountGroup;
+    search: CountGroup;
+    documents: CountGroup;
+    video: CountGroup;
+    faq: CountGroup;
     service: CountGroup;
     unknown: CountGroup;
     depth: {
@@ -156,10 +170,19 @@ const informationalPatterns = [
   '/stati/',
   '/news/',
   '/novosti/',
-  '/faq/',
   '/help/',
   '/pomoshch/',
 ];
+
+const applicationPatterns = ['/app/', '/lk/', '/cabinet/', '/dashboard/', '/platform/'];
+
+const searchPatterns = ['/search/', '/poisk/', '/find/', '/results/'];
+
+const documentPatterns = ['/docs/', '/documentation/', '/doc-cat/', '/documents/', '/dokument'];
+
+const videoPatterns = ['/video/', '/videos/', '/webinar', '/webinars/', '/vebinar'];
+
+const faqPatterns = ['/faq/', '/voprosy-otvety/', '/questions/', '/question/', '/answer/', '/dwqa-'];
 
 const servicePatterns = [
   '/about/',
@@ -171,6 +194,18 @@ const servicePatterns = [
   '/oferta/',
   '/dostavka/',
 ];
+
+const sitemapBucketLabels: Record<SitemapBucket, string> = {
+  commercial: 'коммерческих',
+  informational: 'информационных',
+  application: 'приложение',
+  search: 'поиск',
+  documents: 'документы',
+  video: 'видео/вебинары',
+  faq: 'faq',
+  service: 'служебных',
+  unknown: 'не определено',
+};
 
 const cityRegex =
   /\b(Москва|Санкт-Петербург|Новосибирск|Екатеринбург|Казань|Нижний Новгород|Челябинск|Самара|Омск|Ростов-на-Дону|Уфа|Краснодар|Пермь|Воронеж)\b/i;
@@ -198,6 +233,11 @@ function createEmptyFullResponse(inputUrl: string, siteUrl: string, finalUrl: st
       total_urls: null,
       commercial: { count: null, percent: null },
       informational: { count: null, percent: null },
+      application: { count: null, percent: null },
+      search: { count: null, percent: null },
+      documents: { count: null, percent: null },
+      video: { count: null, percent: null },
+      faq: { count: null, percent: null },
       service: { count: null, percent: null },
       unknown: { count: null, percent: null },
       depth: { level1: null, level2: null, level3plus: null },
@@ -344,56 +384,65 @@ function detectCms(html: string, headers: Headers) {
   const server = (headers.get('server') || '').toLowerCase();
   const poweredBy = (headers.get('x-powered-by') || '').toLowerCase();
   const htmlLower = html.toLowerCase();
-
-  if (
+  const hasBitrix =
     /bitrix/i.test(server) ||
     /bitrix/i.test(poweredBy) ||
     htmlLower.includes('/bitrix/') ||
     htmlLower.includes('bx.setcsslist') ||
-    headers.has('x-powered-cms')
-  ) {
-    return 'Битрикс';
-  }
+    headers.has('x-powered-cms');
 
-  if (
+  const hasWordPress =
     htmlLower.includes('wp-content') ||
     htmlLower.includes('wp-includes') ||
     htmlLower.includes('content="wordpress') ||
-    headers.has('x-pingback')
-  ) {
-    return 'WordPress';
-  }
+    headers.has('x-pingback');
 
-  if (
+  const hasNext =
     /next\.js/i.test(poweredBy) ||
     htmlLower.includes('/_next/static/') ||
-    htmlLower.includes('__next_data__')
-  ) {
-    return 'Next.js';
-  }
+    htmlLower.includes('__next_data__') ||
+    htmlLower.includes('__next_f') ||
+    htmlLower.includes('next-route-announcer');
 
-  if (
+  const hasReact =
+    hasNext ||
+    htmlLower.includes('react-dom') ||
+    htmlLower.includes('data-reactroot') ||
+    htmlLower.includes('__react_devtools_global_hook__') ||
+    htmlLower.includes('/static/js/main.') ||
+    htmlLower.includes('/assets/index-');
+
+  const hasTilda =
     htmlLower.includes('tilda') ||
     htmlLower.includes('tildacdn') ||
-    htmlLower.includes('t-records')
-  ) {
-    return 'Тильда';
-  }
+    htmlLower.includes('t-records');
 
-  if (
+  const hasShopify =
     /shopify/i.test(server) ||
     headers.has('x-shopify-stage') ||
-    htmlLower.includes('cdn.shopify.com')
-  ) {
-    return 'Shopify';
+    htmlLower.includes('cdn.shopify.com');
+
+  const hasSpaShell =
+    (htmlLower.includes('id="root"') || htmlLower.includes("id='root'") || htmlLower.includes('id="app"')) &&
+    htmlLower.includes('<script');
+
+  const primaryCms =
+    (hasBitrix && 'Битрикс') ||
+    (hasWordPress && 'WordPress') ||
+    (hasShopify && 'Shopify') ||
+    (hasTilda && 'Тильда') ||
+    null;
+
+  const frontendLayer = hasNext ? 'Next.js' : hasReact ? 'React' : hasSpaShell ? 'SPA' : null;
+
+  if (primaryCms && frontendLayer) {
+    return `${primaryCms} + ${frontendLayer}`;
   }
 
-  if (
-    (htmlLower.includes('id="root"') || htmlLower.includes("id='root'") || htmlLower.includes('id="app"')) &&
-    htmlLower.includes('<script')
-  ) {
-    return 'SPA';
-  }
+  if (primaryCms) return primaryCms;
+  if (hasNext) return 'Next.js';
+  if (hasReact) return 'React';
+  if (hasSpaShell) return 'SPA';
 
   return 'Другой';
 }
@@ -533,6 +582,8 @@ async function crawlSitemaps(initialUrls: string[]) {
   const visited = new Set<string>();
   const entries: SitemapUrlEntry[] = [];
   let detectedType: string | null = null;
+  let truncatedByUrlLimit = false;
+  let truncatedByFileLimit = false;
 
   while (queue.length && entries.length < MAX_SITEMAP_URLS && visited.size < MAX_SITEMAP_FILES) {
     const sitemapUrl = queue.shift();
@@ -555,15 +606,24 @@ async function crawlSitemaps(initialUrls: string[]) {
       detectedType = detectedType || 'urlset';
       for (const entry of parseSitemapUrlset(xml)) {
         entries.push(entry);
-        if (entries.length >= MAX_SITEMAP_URLS) break;
+        if (entries.length >= MAX_SITEMAP_URLS) {
+          truncatedByUrlLimit = true;
+          break;
+        }
       }
     }
+  }
+
+  if (visited.size >= MAX_SITEMAP_FILES && queue.length) {
+    truncatedByFileLimit = true;
   }
 
   return {
     entries,
     type: detectedType,
     visited: Array.from(visited),
+    truncatedByUrlLimit,
+    truncatedByFileLimit,
   };
 }
 
@@ -576,19 +636,65 @@ function classifyUrl(loc: string): SitemapBucket {
     path = loc.toLowerCase();
   }
 
+  if (applicationPatterns.some((pattern) => path.includes(pattern))) return 'application';
+  if (searchPatterns.some((pattern) => path.includes(pattern))) return 'search';
+  if (documentPatterns.some((pattern) => path.includes(pattern))) return 'documents';
+  if (videoPatterns.some((pattern) => path.includes(pattern))) return 'video';
+  if (faqPatterns.some((pattern) => path.includes(pattern))) return 'faq';
   if (commercialPatterns.some((pattern) => path.includes(pattern))) return 'commercial';
   if (informationalPatterns.some((pattern) => path.includes(pattern))) return 'informational';
   if (servicePatterns.some((pattern) => path.includes(pattern))) return 'service';
+
+  if (/(search|find|query|lookup|okpd2|nkmi|registry|reestr)/i.test(path)) {
+    return 'search';
+  }
+
+  if (/(docs?|documentation|document|паспорт|инструкц|руководство|manual|guide)/i.test(path)) {
+    return 'documents';
+  }
+
+  if (/(video|webinar|vebinar|recording|youtube|rutube)/i.test(path)) {
+    return 'video';
+  }
+
+  if (/(faq|question|answer|вопрос|ответ|dwqa)/i.test(path)) {
+    return 'faq';
+  }
 
   if (/(купить|цена|заказать|стоимость|product|shop|catalog|товар|услуг)/i.test(path)) {
     return 'commercial';
   }
 
-  if (/(как|почему|что-такое|что_такое|статья|blog|news|faq|guide|help)/i.test(path)) {
+  if (/(как|почему|что-такое|что_такое|статья|blog|news|guide|help)/i.test(path)) {
     return 'informational';
   }
 
   return 'unknown';
+}
+
+function getTopStructureBuckets(structure: SiteProfileResponse['structure']) {
+  const bucketOrder: SitemapBucket[] = [
+    'commercial',
+    'informational',
+    'application',
+    'search',
+    'documents',
+    'video',
+    'faq',
+    'service',
+    'unknown',
+  ];
+
+  const ordered: Array<{ key: SitemapBucket; percent: number; count: number }> = bucketOrder
+    .map((key) => ({
+      key,
+      percent: structure[key].percent ?? 0,
+      count: structure[key].count ?? 0,
+    }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.percent - a.percent);
+
+  return ordered.slice(0, 3);
 }
 
 function countDepth(loc: string) {
@@ -1028,8 +1134,12 @@ function buildFallbackSummary(input: {
   );
 
   if (input.structure.sitemap_found && input.structure.total_urls !== null) {
+    const topBuckets = getTopStructureBuckets(input.structure)
+      .map((item) => `${sitemapBucketLabels[item.key]} ${item.percent}%`)
+      .join(', ');
+
     sentences.push(
-      `В sitemap найдено ${new Intl.NumberFormat('ru-RU').format(input.structure.total_urls)} URL: коммерческих ${input.structure.commercial.percent ?? 0}%, информационных ${input.structure.informational.percent ?? 0}%.`
+      `В sitemap найдено ${new Intl.NumberFormat('ru-RU').format(input.structure.total_urls)} URL${topBuckets ? `: ${topBuckets}.` : '.'}`
     );
   } else {
     sentences.push('Sitemap не найден — структуру сайта определить удалось только частично.');
@@ -1081,6 +1191,11 @@ function buildStructureSummary(entries: SitemapUrlEntry[]) {
   const counters: Record<SitemapBucket, number> = {
     commercial: 0,
     informational: 0,
+    application: 0,
+    search: 0,
+    documents: 0,
+    video: 0,
+    faq: 0,
     service: 0,
     unknown: 0,
   };
@@ -1125,6 +1240,11 @@ function buildStructureSummary(entries: SitemapUrlEntry[]) {
     total,
     commercial: { count: counters.commercial, percent: formatPercent(counters.commercial, total) },
     informational: { count: counters.informational, percent: formatPercent(counters.informational, total) },
+    application: { count: counters.application, percent: formatPercent(counters.application, total) },
+    search: { count: counters.search, percent: formatPercent(counters.search, total) },
+    documents: { count: counters.documents, percent: formatPercent(counters.documents, total) },
+    video: { count: counters.video, percent: formatPercent(counters.video, total) },
+    faq: { count: counters.faq, percent: formatPercent(counters.faq, total) },
     service: { count: counters.service, percent: formatPercent(counters.service, total) },
     unknown: { count: counters.unknown, percent: formatPercent(counters.unknown, total) },
     depth,
@@ -1208,6 +1328,11 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
       total_urls: structureSummary.total,
       commercial: structureSummary.commercial,
       informational: structureSummary.informational,
+      application: structureSummary.application,
+      search: structureSummary.search,
+      documents: structureSummary.documents,
+      video: structureSummary.video,
+      faq: structureSummary.faq,
       service: structureSummary.service,
       unknown: structureSummary.unknown,
     },
@@ -1258,6 +1383,15 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     informational: sitemapCrawl.entries.length
       ? structureSummary.informational
       : { count: null, percent: null },
+    application: sitemapCrawl.entries.length
+      ? structureSummary.application
+      : { count: null, percent: null },
+    search: sitemapCrawl.entries.length ? structureSummary.search : { count: null, percent: null },
+    documents: sitemapCrawl.entries.length
+      ? structureSummary.documents
+      : { count: null, percent: null },
+    video: sitemapCrawl.entries.length ? structureSummary.video : { count: null, percent: null },
+    faq: sitemapCrawl.entries.length ? structureSummary.faq : { count: null, percent: null },
     service: sitemapCrawl.entries.length ? structureSummary.service : { count: null, percent: null },
     unknown: sitemapCrawl.entries.length ? structureSummary.unknown : { count: null, percent: null },
     depth: sitemapCrawl.entries.length
@@ -1268,7 +1402,13 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     yandex_index: yandexIndex,
     google_index: googleIndex,
     yandex_iks: yandexIks,
-    message: sitemapCrawl.entries.length ? null : 'Sitemap не найден — структуру сайта не удалось определить',
+    message: !sitemapCrawl.entries.length
+      ? 'Sitemap не найден — структуру сайта не удалось определить'
+      : sitemapCrawl.truncatedByUrlLimit
+        ? `Обработаны первые ${new Intl.NumberFormat('ru-RU').format(MAX_SITEMAP_URLS)} URL из sitemap. Для очень больших сайтов структура может быть неполной.`
+        : sitemapCrawl.truncatedByFileLimit
+          ? `Обработаны первые ${new Intl.NumberFormat('ru-RU').format(MAX_SITEMAP_FILES)} sitemap-файлов. Для очень больших сайтов структура может быть неполной.`
+          : null,
   };
 
   const technical: SiteProfileResponse['technical'] = {
