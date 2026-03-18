@@ -11,7 +11,8 @@ from xml.etree import ElementTree as ET
 TIMEOUT = 12
 MAX_HTML_BYTES = 500_000
 MAX_TEXT_BYTES = 1_500_000
-MAX_SITEMAP_FETCHES = 25
+MAX_SITEMAP_FETCHES = 200
+MAX_SITEMAP_URLS = 200_000
 
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -314,7 +315,7 @@ def inspect_sitemap(start_url: str, target_url: str) -> tuple[bool, str | None, 
     urls_count = 0
     page_found = False
 
-    while queue and fetch_count < MAX_SITEMAP_FETCHES:
+    while queue and fetch_count < MAX_SITEMAP_FETCHES and urls_count < MAX_SITEMAP_URLS:
         current = queue.pop(0)
         if current in seen:
             continue
@@ -341,7 +342,9 @@ def inspect_sitemap(start_url: str, target_url: str) -> tuple[bool, str | None, 
 
         if current_type == "urlset":
             urls = extract_loc_values(root, "url")
-            urls_count += len(urls)
+            if urls:
+                remaining = max(0, MAX_SITEMAP_URLS - urls_count)
+                urls_count += min(len(urls), remaining)
             if any(
                 same_url(url, normalized_target) or normalize_compare_url(url) == normalized_target
                 for url in urls

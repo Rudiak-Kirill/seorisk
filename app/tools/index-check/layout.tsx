@@ -6,14 +6,14 @@ const siteUrl = getSiteUrl();
 
 export const metadata: Metadata = {
   title:
-    'Проверить индексацию страницы онлайн — robots.txt, canonical, sitemap | SEORISK.RU',
+    'Проверить возможность индексации страницы онлайн — robots.txt, canonical, sitemap | SEORISK.RU',
   description:
     'Проверьте почему страница не индексируется: HTTP-ответ, meta robots, robots.txt, canonical и наличие в sitemap. Бесплатная проверка индексации онлайн за 30 секунд.',
   alternates: {
     canonical: `${siteUrl}/tools/index-check`,
   },
   openGraph: {
-    title: 'Проверить индексацию страницы — Index Check',
+    title: 'Проверить возможность индексации страницы — Index Check',
     description:
       'Страница не попадает в поиск? Проверьте robots.txt, noindex, canonical и sitemap за 30 секунд.',
     url: `${siteUrl}/tools/index-check`,
