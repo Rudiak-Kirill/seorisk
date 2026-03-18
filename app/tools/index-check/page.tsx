@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import ToolProgress from '@/components/tool-progress';
@@ -221,6 +222,11 @@ export default function IndexCheckPage() {
               value={url}
               onChange={(event) => setUrl(event.target.value)}
             />
+            {url.trim() ? (
+              <Button asChild variant="outline" className="rounded-full">
+                <Link href={`/tools/compare?site=${encodeURIComponent(url)}`}>Сравнить с конкурентами</Link>
+              </Button>
+            ) : null}
             <Button className="rounded-full" onClick={onCheck} disabled={loading}>
               {loading ? 'Проверяем...' : 'Проверить'}
             </Button>

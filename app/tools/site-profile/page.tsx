@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { ArrowRight } from 'lucide-react';
 import ToolProgress from '@/components/tool-progress';
@@ -187,6 +188,7 @@ function SignalList({
 }
 
 export default function SiteProfilePage() {
+  const searchParams = useSearchParams();
   const [url, setUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -195,6 +197,16 @@ export default function SiteProfilePage() {
   const [showDetails, setShowDetails] = useState(false);
   const requestIdRef = useRef(0);
   const isChecking = loading || fullLoading;
+
+  useEffect(() => {
+    const querySite = searchParams.get('site');
+    if (querySite) {
+      const normalized = normalizeSiteInput(querySite);
+      if (normalized) {
+        setUrl(normalized);
+      }
+    }
+  }, [searchParams]);
 
   const structureRows: Array<{ label: string; group: CountGroup }> = data
     ? [
@@ -455,11 +467,15 @@ export default function SiteProfilePage() {
 
               <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                 <h2 className="text-base font-semibold text-gray-900">Переходите дальше</h2>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   {[
                     { href: '/tools/ssr-check', label: 'Проверить рендеринг' },
                     { href: '/tools/index-check', label: 'Проверить индексацию' },
                     { href: '/tools/speed-check', label: 'Проверить скорость' },
+                    {
+                      href: `/tools/compare?site=${encodeURIComponent(data.site_url)}`,
+                      label: 'Сравнить с конкурентами',
+                    },
                   ].map((item) => (
                     <Link
                       key={item.href}

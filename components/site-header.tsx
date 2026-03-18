@@ -18,6 +18,7 @@ const navLinks = [
   { href: '/tools/speed-check', label: 'Speed Check' },
   { href: '/tools/site-profile', label: 'Site Profile' },
   { href: '/tools/subdomain-check', label: 'Subdomain Check' },
+  { href: '/tools/compare', label: 'Compare' },
 ];
 
 export default function SiteHeader({ authHref, authLabel }: SiteHeaderProps) {

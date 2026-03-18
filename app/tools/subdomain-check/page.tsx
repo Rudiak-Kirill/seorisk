@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import ToolProgress from '@/components/tool-progress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -212,6 +213,11 @@ export default function SubdomainCheckPage() {
               onChange={(event) => setDomain(event.target.value)}
               onBlur={() => setDomain((current) => normalizeDomainInput(current))}
             />
+            {domain.trim() ? (
+              <Button asChild variant="outline" className="rounded-full">
+                <Link href={`/tools/compare?site=${encodeURIComponent(domain)}`}>Сравнить с конкурентами</Link>
+              </Button>
+            ) : null}
             <Button className="rounded-full" onClick={onCheck} disabled={loading}>
               {loading ? 'Ищем...' : 'Найти поддомены'}
             </Button>

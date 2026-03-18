@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -461,6 +462,11 @@ export default function SsrCheckPage() {
               value={url}
               onChange={(event) => setUrl(event.target.value)}
             />
+            {url.trim() ? (
+              <Button asChild variant="outline" className="rounded-full">
+                <Link href={`/tools/compare?site=${encodeURIComponent(url)}`}>Сравнить с конкурентами</Link>
+              </Button>
+            ) : null}
             <Button className="rounded-full" onClick={onCheck} disabled={loading}>
               {loading ? 'Проверяем...' : 'Проверить'}
             </Button>
