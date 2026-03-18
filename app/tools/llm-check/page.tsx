@@ -38,7 +38,7 @@ type Snapshot = {
   access_state?: string | null;
 };
 
-type AgentStatus = 'ok' | 'warn' | 'fail';
+type AgentStatus = 'ok' | 'warn' | 'fail' | 'na';
 
 type AgentResult = {
   key: string;
@@ -64,6 +64,11 @@ type ContentCheck = {
 type AiReadiness = {
   verdict: AgentStatus;
   summary: string;
+  page_type: {
+    key: string;
+    label: string;
+    reason: string;
+  };
   cards: {
     availability: AiReadinessCard;
     schema: AiReadinessCard;
@@ -270,6 +275,7 @@ function getBannerConfig(failCount: number, warnCount: number) {
 function getCountPillClass(status: AgentStatus) {
   if (status === 'fail') return 'border-red-200 bg-red-50 text-red-700';
   if (status === 'warn') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (status === 'na') return 'border-gray-200 bg-gray-50 text-gray-600';
   return 'border-green-200 bg-green-50 text-green-700';
 }
 
@@ -287,24 +293,28 @@ function formatSnapshot(snap: Snapshot) {
 function aiCardClass(status: AgentStatus) {
   if (status === 'fail') return 'text-red-600';
   if (status === 'warn') return 'text-amber-600';
+  if (status === 'na') return 'text-gray-500';
   return 'text-green-600';
 }
 
 function aiVerdictClass(verdict: AgentStatus) {
   if (verdict === 'fail') return 'border-red-200 bg-red-50 text-red-700';
   if (verdict === 'warn') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (verdict === 'na') return 'border-gray-200 bg-gray-50 text-gray-700';
   return 'border-green-200 bg-green-50 text-green-700';
 }
 
 function contentMiniCardClass(status: AgentStatus) {
   if (status === 'fail') return 'border-red-200 bg-red-50';
   if (status === 'warn') return 'border-amber-200 bg-amber-50';
+  if (status === 'na') return 'border-gray-200 bg-gray-50';
   return 'border-green-200 bg-green-50';
 }
 
 function contentMiniCardIcon(status: AgentStatus) {
   if (status === 'fail') return '🔴';
   if (status === 'warn') return '⚠️';
+  if (status === 'na') return '—';
   return '✅';
 }
 
@@ -369,7 +379,7 @@ export default function LlmCheckPage() {
     if (!data) return [];
 
     const sortedAgents = [...agentResults].sort((left, right) => {
-      const order: Record<AgentStatus, number> = { fail: 0, warn: 1, ok: 2 };
+      const order: Record<AgentStatus, number> = { fail: 0, warn: 1, ok: 2, na: 3 };
       return order[left.status] - order[right.status];
     });
 
@@ -551,6 +561,13 @@ export default function LlmCheckPage() {
                     <p className="mt-1 text-sm text-gray-500">
                       Проверка технических сигналов, которые помогают AI-системам читать и понимать страницу.
                     </p>
+                    <div className="mt-2 text-sm text-gray-600">
+                      Тип страницы:{' '}
+                      <span className="font-medium text-gray-900">
+                        {data.ai_readiness.page_type.label}
+                      </span>
+                      <span className="ml-2 text-gray-500">{data.ai_readiness.page_type.reason}</span>
+                    </div>
                   </div>
 
                   <div

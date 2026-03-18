@@ -29,7 +29,24 @@ type LlmPayload = {
   ai_readiness?: unknown;
 };
 
-type CardStatus = 'ok' | 'warn' | 'fail';
+type CardStatus = 'ok' | 'warn' | 'fail' | 'na';
+
+type PageTypeKey =
+  | 'home'
+  | 'article'
+  | 'product'
+  | 'category'
+  | 'service'
+  | 'faq'
+  | 'docs'
+  | 'search'
+  | 'unknown';
+
+type PageTypeInfo = {
+  key: PageTypeKey;
+  label: string;
+  reason: string;
+};
 
 type ReadinessCard = {
   status: CardStatus;
@@ -70,6 +87,7 @@ type ContentDetails = {
 type AiReadiness = {
   verdict: CardStatus;
   summary: string;
+  page_type: PageTypeInfo;
   cards: {
     availability: ReadinessCard;
     schema: ReadinessCard;
@@ -123,6 +141,112 @@ const schemaPriorityMap = {
   ],
   basic: ['BreadcrumbList', 'ListItem', 'SiteLinksSearchBox', 'SearchAction'],
 } as const;
+
+const pageTypeLabels: Record<PageTypeKey, string> = {
+  home: 'Главная',
+  article: 'Статья',
+  product: 'Товар',
+  category: 'Категория',
+  service: 'Услуга / лендинг',
+  faq: 'FAQ / help',
+  docs: 'Документация',
+  search: 'Поиск / выдача',
+  unknown: 'Неопределённый тип',
+};
+
+function makeNaCheck(description: string, value = 'Не требуется'): ContentCheck {
+  return {
+    status: 'na',
+    value,
+    description,
+  };
+}
+
+function classifyPageType(
+  pageUrl: string,
+  finalUrl: string,
+  html: string,
+  schemaTypes: string[],
+  faqSignals: string[]
+): PageTypeInfo {
+  let parsed: URL | null = null;
+
+  try {
+    parsed = new URL(finalUrl || pageUrl);
+  } catch {
+    try {
+      parsed = new URL(pageUrl);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  const pathname = (parsed?.pathname || '/').toLowerCase();
+  const search = (parsed?.search || '').toLowerCase();
+  const normalizedSchema = new Set(schemaTypes.map((type) => type.toLowerCase()));
+
+  if (pathname === '/' || pathname === '') {
+    return { key: 'home', label: pageTypeLabels.home, reason: 'Определено по корню сайта.' };
+  }
+
+  if (
+    /\/search\b|\/results\b|\/find\b|\/poisk\b/.test(pathname) ||
+    /[?&](q|query|search|s)=/.test(search)
+  ) {
+    return { key: 'search', label: pageTypeLabels.search, reason: 'Определено по URL поиска.' };
+  }
+
+  if (
+    normalizedSchema.has('faqpage') ||
+    normalizedSchema.has('qapage') ||
+    /\/faq\b|\/help\b|\/question\b|\/answer\b|\/voprosy-otvety\b|\/dwqa-/.test(pathname) ||
+    faqSignals.length >= 2
+  ) {
+    return { key: 'faq', label: pageTypeLabels.faq, reason: 'Определено по FAQ-сигналам и URL.' };
+  }
+
+  if (
+    /\/docs\b|\/documentation\b|\/guide\b|\/manual\b|\/reference\b|\/knowledge-base\b/.test(pathname)
+  ) {
+    return { key: 'docs', label: pageTypeLabels.docs, reason: 'Определено по URL документации.' };
+  }
+
+  if (
+    normalizedSchema.has('article') ||
+    normalizedSchema.has('newsarticle') ||
+    normalizedSchema.has('blogposting') ||
+    /\/blog\b|\/news\b|\/article\b|\/post\b|\/stati\b|\/novosti\b/.test(pathname) ||
+    (/<article\b/i.test(html) &&
+      (/(datepublished|article:published_time)/i.test(html) || /rel=["'][^"']*author/i.test(html)))
+  ) {
+    return { key: 'article', label: pageTypeLabels.article, reason: 'Определено по article-сигналам.' };
+  }
+
+  if (
+    normalizedSchema.has('product') ||
+    normalizedSchema.has('offer') ||
+    normalizedSchema.has('aggregateoffer') ||
+    /\/product\b|\/products\b|\/shop\b|\/tovar\b|\/buy\b/.test(pathname) ||
+    (/(₽|руб\.?|price|цена)/i.test(html) && /(add to cart|в корзину|купить|заказать)/i.test(html))
+  ) {
+    return { key: 'product', label: pageTypeLabels.product, reason: 'Определено по товарным сигналам.' };
+  }
+
+  if (
+    /\/catalog\b|\/category\b|\/categories\b|\/collection\b|\/tag\b/.test(pathname)
+  ) {
+    return { key: 'category', label: pageTypeLabels.category, reason: 'Определено по URL раздела.' };
+  }
+
+  if (
+    normalizedSchema.has('service') ||
+    /\/service\b|\/services\b|\/uslugi\b|\/solution\b|\/landing\b/.test(pathname)
+  ) {
+    return { key: 'service', label: pageTypeLabels.service, reason: 'Определено по service-сигналам.' };
+  }
+
+  return { key: 'unknown', label: pageTypeLabels.unknown, reason: 'Не удалось надёжно определить тип страницы.' };
+}
 
 function deriveLlmCheckSummary(payload: LlmPayload) {
   const checks = payload?.checks;
@@ -482,7 +606,10 @@ function buildAvailabilityCard(payload: LlmPayload): ReadinessCard {
   };
 }
 
-function buildSchemaCard(schemaPriorityDetails: SchemaPriorityDetails): ReadinessCard {
+function buildSchemaCard(
+  schemaPriorityDetails: SchemaPriorityDetails,
+  pageType: PageTypeInfo
+): ReadinessCard {
   const foundCount =
     schemaPriorityDetails.critical.matched.length +
     schemaPriorityDetails.important.matched.length +
@@ -491,31 +618,133 @@ function buildSchemaCard(schemaPriorityDetails: SchemaPriorityDetails): Readines
     schemaPriorityDetails.critical.total +
     schemaPriorityDetails.important.total +
     schemaPriorityDetails.basic.total;
-  const hasCritical = schemaPriorityDetails.critical.matched.length > 0;
+  const criticalSet = new Set(schemaPriorityDetails.critical.matched);
+  const importantSet = new Set(schemaPriorityDetails.important.matched);
+  const basicSet = new Set(schemaPriorityDetails.basic.matched);
+
+  const hasArticleSchema = ['Article', 'NewsArticle', 'BlogPosting'].some((item) =>
+    criticalSet.has(item)
+  );
+  const hasProductSchema = ['Product', 'Offer', 'AggregateOffer'].some((item) =>
+    criticalSet.has(item)
+  );
+  const hasFaqSchema = ['FAQPage', 'QAPage'].some((item) => criticalSet.has(item));
+  const hasServiceSchema = importantSet.has('Service');
+  const hasHomeSchema =
+    importantSet.has('WebSite') || importantSet.has('Organization') || importantSet.has('WebPage');
+  const hasNavigationSchema = basicSet.has('BreadcrumbList') || basicSet.has('ListItem');
+
+  if (pageType.key === 'article') {
+    return hasArticleSchema
+      ? {
+          status: 'ok',
+          value: `${foundCount} из ${totalCount}`,
+          description: 'Для статьи найдена релевантная schema.org разметка.',
+        }
+      : {
+          status: foundCount ? 'warn' : 'fail',
+          value: foundCount ? `${foundCount} из ${totalCount}` : 'Нет',
+          description: 'Для статьи не найдена Article / NewsArticle / BlogPosting schema.',
+        };
+  }
+
+  if (pageType.key === 'product') {
+    return hasProductSchema
+      ? {
+          status: 'ok',
+          value: `${foundCount} из ${totalCount}`,
+          description: 'Для товарной страницы найдена релевантная schema.org разметка.',
+        }
+      : {
+          status: foundCount ? 'warn' : 'fail',
+          value: foundCount ? `${foundCount} из ${totalCount}` : 'Нет',
+          description: 'Для товарной страницы не найдена Product / Offer schema.',
+        };
+  }
+
+  if (pageType.key === 'faq') {
+    return hasFaqSchema
+      ? {
+          status: 'ok',
+          value: `${foundCount} из ${totalCount}`,
+          description: 'Для FAQ-страницы найдена релевантная schema.org разметка.',
+        }
+      : {
+          status: foundCount ? 'warn' : 'fail',
+          value: foundCount ? `${foundCount} из ${totalCount}` : 'Нет',
+          description: 'Для FAQ-страницы не найдена FAQPage / QAPage schema.',
+        };
+  }
+
+  if (pageType.key === 'service') {
+    if (hasServiceSchema || hasHomeSchema || hasNavigationSchema) {
+      return {
+        status: 'ok',
+        value: `${foundCount} из ${totalCount}`,
+        description: 'Для лендинга или услуги базовая schema.org разметка найдена.',
+      };
+    }
+
+    return {
+      status: 'na',
+      value: 'Опционально',
+      description: 'Для этого типа страницы schema полезна, но не обязательна.',
+    };
+  }
+
+  if (pageType.key === 'home' || pageType.key === 'category' || pageType.key === 'search') {
+    if (hasHomeSchema || hasNavigationSchema || foundCount) {
+      return {
+        status: 'ok',
+        value: `${foundCount} из ${totalCount}`,
+        description: 'Базовая schema.org разметка найдена.',
+      };
+    }
+
+    return {
+      status: 'na',
+      value: 'Опционально',
+      description: 'Для этого типа страницы schema не обязательна.',
+    };
+  }
 
   if (!foundCount) {
     return {
-      status: 'fail',
-      value: 'Нет',
-      description: 'JSON-LD разметка schema.org не найдена.',
+      status: 'na',
+      value: 'Опционально',
+      description: 'Релевантная schema.org разметка для этого типа страницы не обязательна.',
     };
   }
 
   return {
-    status: hasCritical ? 'ok' : 'warn',
+    status: 'ok',
     value: `${foundCount} из ${totalCount}`,
-    description: hasCritical
-      ? 'Есть критические типы schema.org.'
-      : 'Есть только важные или базовые типы schema.org.',
+    description: 'На странице найдена schema.org разметка.',
   };
 }
 
-function buildFaqCard(signals: string[]): ReadinessCard {
+function buildFaqCard(signals: string[], pageType: PageTypeInfo): ReadinessCard {
   if (!signals.length) {
+    if (pageType.key === 'faq') {
+      return {
+        status: 'fail',
+        value: 'Нет',
+        description: 'Для FAQ-страницы не найдена FAQ-структура.',
+      };
+    }
+
+    if (pageType.key === 'docs') {
+      return {
+        status: 'warn',
+        value: 'Нет',
+        description: 'Для документации FAQ может усилить ответы AI, но структура не найдена.',
+      };
+    }
+
     return {
-      status: 'warn',
-      value: 'Нет',
-      description: 'FAQ-структура на странице не найдена.',
+      status: 'na',
+      value: 'Не требуется',
+      description: 'Для этого типа страницы FAQ-структура не обязательна.',
     };
   }
 
@@ -526,7 +755,13 @@ function buildFaqCard(signals: string[]): ReadinessCard {
   };
 }
 
-function buildContentCard(html: string, text: string, pageUrl: string, finalUrl: string): {
+function buildContentCard(
+  html: string,
+  text: string,
+  pageUrl: string,
+  finalUrl: string,
+  pageType: PageTypeInfo
+): {
   card: ReadinessCard;
   details: AiReadiness['details'];
 } {
@@ -536,8 +771,8 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
   const h1Text = extractTagText(html, 'h1');
   const title = extractTagText(html, 'title');
   const metaDescription = extractMetaContent(html, 'name', 'description');
-  const listsCount = countMatches(html, /<(ul|ol)\b/gi);
-  const tablesCount = countMatches(html, /<table\b/gi);
+  const listsCount = countMatches(html, /<(ul|ol)/gi);
+  const tablesCount = countMatches(html, /<table/gi);
   const htmlLang = extractHtmlLang(html);
   const ogTitle = extractMetaContent(html, 'property', 'og:title');
   const ogDescription = extractMetaContent(html, 'property', 'og:description');
@@ -549,7 +784,7 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
     extractMetaContent(html, 'name', 'article:published_time');
   const authorValue =
     findSchemaString(schemaNodes, 'author') ||
-    (/<a\b[^>]*rel=["'][^"']*author[^"']*["']/i.test(html) ? 'rel=author' : '');
+    (/<a[^>]*rel=["'][^"']*author[^"']*["']/i.test(html) ? 'rel=author' : '');
   const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
   const textToHtmlRatio = html.length ? Number((text.length / html.length).toFixed(2)) : 0;
   const hiddenMainContent = hasHiddenMainContent(html);
@@ -557,6 +792,13 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
   const canonicalMatch =
     canonicalUrl &&
     normalizeComparableUrl(canonicalUrl) === normalizeComparableUrl(finalUrl || pageUrl);
+
+  const articleLike = pageType.key === 'article';
+  const docsLike = pageType.key === 'docs';
+  const searchLike = pageType.key === 'search';
+  const structuredContentExpected = articleLike || docsLike || pageType.key === 'faq';
+  const listHelpful = articleLike || docsLike || pageType.key === 'faq';
+  const tableHelpful = docsLike || articleLike || pageType.key === 'product' || pageType.key === 'category';
 
   const contentChecks: ContentDetails['checks'] = {
     h1:
@@ -607,38 +849,42 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
             status: 'fail',
             value: `H2: ${h2}, H3: ${h3}`,
             description: hiddenMainContent
-              ? 'Основной контент скрыт или нечитабелен для AI.'
+              ? 'Основной контент скрыт или нечитаем для AI.'
               : 'Заголовки отсутствуют или иерархия нарушена.',
           }
         : h2 === 0 && h3 === 0
-          ? {
-              status: 'warn',
-              value: `H2: ${h2}, H3: ${h3}`,
-              description: 'Есть только H1, без H2/H3.',
-            }
+          ? structuredContentExpected
+            ? {
+                status: 'warn',
+                value: `H2: ${h2}, H3: ${h3}`,
+                description: 'Есть только H1, без H2/H3.',
+              }
+            : makeNaCheck('Для этого типа страницы расширенная иерархия H2/H3 не обязательна.', `H2: ${h2}, H3: ${h3}`)
           : {
               status: 'ok',
               value: `H2: ${h2}, H3: ${h3}`,
               description: 'Есть логичная иерархия заголовков.',
             },
     content_volume:
-      wordCount < 300
-        ? {
-            status: 'fail',
-            value: `${wordCount} слов`,
-            description: 'Менее 300 слов — для AI этого мало.',
-          }
-        : wordCount <= 500
+      searchLike
+        ? makeNaCheck('Для страницы поиска объём основного текста не является обязательным.', `${wordCount} слов`)
+        : wordCount < 300
           ? {
-              status: 'warn',
+              status: 'fail',
               value: `${wordCount} слов`,
-              description: '300–500 слов — достаточно, но можно больше.',
+              description: 'Менее 300 слов — для AI этого мало.',
             }
-          : {
-              status: 'ok',
-              value: `${wordCount} слов`,
-              description: 'Более 500 слов — хороший объём.',
-            },
+          : wordCount <= 500
+            ? {
+                status: 'warn',
+                value: `${wordCount} слов`,
+                description: '300–500 слов — достаточно, но можно больше.',
+              }
+            : {
+                status: 'ok',
+                value: `${wordCount} слов`,
+                description: 'Более 500 слов — хороший объём.',
+              },
     lists:
       listsCount > 0
         ? {
@@ -646,11 +892,13 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
             value: `${listsCount} шт`,
             description: 'Списки найдены.',
           }
-        : {
-            status: 'warn',
-            value: 'Нет',
-            description: 'Списков нет — можно усилить структуру.',
-          },
+        : listHelpful
+          ? {
+              status: 'warn',
+              value: 'Нет',
+              description: 'Списков нет — можно усилить структуру.',
+            }
+          : makeNaCheck('Для этого типа страницы списки не обязательны.'),
     tables:
       tablesCount > 0
         ? {
@@ -658,11 +906,13 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
             value: `${tablesCount} шт`,
             description: 'Таблицы с данными найдены.',
           }
-        : {
-            status: 'warn',
-            value: 'Нет',
-            description: 'Таблицы не найдены.',
-          },
+        : tableHelpful
+          ? {
+              status: 'warn',
+              value: 'Нет',
+              description: 'Таблицы не найдены.',
+            }
+          : makeNaCheck('Для этого типа страницы таблицы не обязательны.'),
     publication_date:
       publishedDate
         ? {
@@ -670,11 +920,19 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
             value: publishedDate,
             description: 'Дата публикации найдена.',
           }
-        : {
-            status: 'warn',
-            value: 'Нет',
-            description: 'Дата публикации не найдена.',
-          },
+        : articleLike
+          ? {
+              status: 'warn',
+              value: 'Нет',
+              description: 'Для статьи дата публикации не найдена.',
+            }
+          : docsLike
+            ? {
+                status: 'warn',
+                value: 'Нет',
+                description: 'Для документации дата обновления может быть полезна, но не найдена.',
+              }
+            : makeNaCheck('Для этого типа страницы дата публикации не обязательна.'),
     author:
       authorValue
         ? {
@@ -682,11 +940,19 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
             value: authorValue,
             description: 'Автор указан.',
           }
-        : {
-            status: 'warn',
-            value: 'Нет',
-            description: 'Автор не указан — E-E-A-T сигнал слабее.',
-          },
+        : articleLike
+          ? {
+              status: 'warn',
+              value: 'Нет',
+              description: 'Для статьи автор не указан — E-E-A-T сигнал слабее.',
+            }
+          : docsLike
+            ? {
+                status: 'warn',
+                value: 'Нет',
+                description: 'Для документации автор или владелец раздела не указан.',
+              }
+            : makeNaCheck('Для этого типа страницы автор не обязателен.'),
     open_graph: (() => {
       const foundOgTags = [
         ogTitle ? 'og:title' : null,
@@ -695,11 +961,13 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
       ].filter(Boolean) as string[];
 
       if (!foundOgTags.length) {
-        return {
-          status: 'fail' as const,
-          value: 'Нет',
-          description: 'Open Graph отсутствует.',
-        };
+        return searchLike
+          ? makeNaCheck('Для этой страницы Open Graph не обязателен.')
+          : {
+              status: 'fail' as const,
+              value: 'Нет',
+              description: 'Open Graph отсутствует.',
+            };
       }
 
       if (foundOgTags.length === 3) {
@@ -748,26 +1016,29 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
             },
   };
 
-  const passedChecks = Object.values(contentChecks).filter((check) => check.status === 'ok').length;
-  const totalChecks = Object.keys(contentChecks).length;
+  const applicableChecks = Object.values(contentChecks).filter((check) => check.status !== 'na');
+  const passedChecks = applicableChecks.filter((check) => check.status === 'ok').length;
+  const totalChecks = applicableChecks.length;
+  const hasFail = applicableChecks.some((check) => check.status === 'fail');
+  const hasWarn = applicableChecks.some((check) => check.status === 'warn');
 
   const card: ReadinessCard =
-    passedChecks >= 9
+    hasFail && passedChecks <= Math.max(1, Math.floor(totalChecks / 2))
       ? {
-          status: 'ok',
+          status: 'fail',
           value: `${passedChecks} из ${totalChecks}`,
-          description: 'Хорошо — большинство AI-сигналов на месте.',
+          description: 'Есть критичные пробелы в сигналах страницы для AI.',
         }
-      : passedChecks >= 6
+      : hasFail || hasWarn
         ? {
             status: 'warn',
             value: `${passedChecks} из ${totalChecks}`,
-            description: 'Есть риски — часть сигналов нужно усилить.',
+            description: 'Есть риски — часть релевантных сигналов нужно усилить.',
           }
         : {
-            status: 'fail',
+            status: 'ok',
             value: `${passedChecks} из ${totalChecks}`,
-            description: 'Слабый блок контента для AI-поиска.',
+            description: 'Релевантные для этого типа страницы AI-сигналы в норме.',
           };
 
   return {
@@ -812,16 +1083,18 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
   const schemaTypes = extractSchemaTypes(html);
   const schemaPriorityDetails = buildSchemaPriorityDetails(schemaTypes);
   const faqSignals = detectFaqSignals(html, schemaTypes);
+  const pageType = classifyPageType(payload.url, page.final_url || payload.url, html, schemaTypes, faqSignals);
   const { card: contentCard, details } = buildContentCard(
     html,
     text,
     payload.url,
-    page.final_url || payload.url
+    page.final_url || payload.url,
+    pageType
   );
 
   const availabilityCard = buildAvailabilityCard(payload);
-  const schemaCard = buildSchemaCard(schemaPriorityDetails);
-  const faqCard = buildFaqCard(faqSignals);
+  const schemaCard = buildSchemaCard(schemaPriorityDetails, pageType);
+  const faqCard = buildFaqCard(faqSignals, pageType);
 
   const cards = {
     availability: availabilityCard,
@@ -830,8 +1103,9 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
     content: contentCard,
   };
 
-  const hasFail = Object.values(cards).some((card) => card.status === 'fail');
-  const hasWarn = Object.values(cards).some((card) => card.status === 'warn');
+  const evaluationCards = Object.values(cards).filter((card) => card.status !== 'na');
+  const hasFail = evaluationCards.some((card) => card.status === 'fail');
+  const hasWarn = evaluationCards.some((card) => card.status === 'warn');
 
   return {
     verdict: hasFail ? 'fail' : hasWarn ? 'warn' : 'ok',
@@ -839,6 +1113,7 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
       hasFail || hasWarn
         ? 'Есть проблемы с AI-готовностью'
         : 'Страница готова к AI-поиску',
+    page_type: pageType,
     cards,
     details: {
       ...details,
