@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import ToolProgress from '@/components/tool-progress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ToolFaq, { type FaqItem } from '@/components/tool-faq';
@@ -230,6 +231,12 @@ export default function IndexCheckPage() {
               {error}
             </div>
           )}
+
+          <ToolProgress
+            active={loading}
+            title="Проверяем индексируемость..."
+            description="Смотрим HTTP-ответ, robots.txt, canonical, meta robots и наличие страницы в sitemap."
+          />
 
           {data && summary && (
             <>

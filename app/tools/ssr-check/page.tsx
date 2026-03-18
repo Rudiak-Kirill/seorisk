@@ -8,6 +8,7 @@ import {
   ChevronUp,
   ShieldAlert,
 } from 'lucide-react';
+import ToolProgress from '@/components/tool-progress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ToolFaq, { type FaqItem } from '@/components/tool-faq';
@@ -470,6 +471,12 @@ export default function SsrCheckPage() {
               {error}
             </div>
           )}
+
+          <ToolProgress
+            active={loading}
+            title="Проверяем доступность для браузера и ботов..."
+            description="Сравниваем ответы Browser, Яндекса и Google по HTTP, контенту и ключевым SEO-сигналам."
+          />
 
           {data && banner && (
             <>

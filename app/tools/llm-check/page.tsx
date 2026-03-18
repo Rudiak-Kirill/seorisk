@@ -8,6 +8,7 @@ import {
   ChevronUp,
   ShieldAlert,
 } from 'lucide-react';
+import ToolProgress from '@/components/tool-progress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ToolFaq, { type FaqItem } from '@/components/tool-faq';
@@ -463,6 +464,12 @@ export default function LlmCheckPage() {
           {error && (
             <div className="mt-4 rounded-md bg-black px-4 py-3 text-sm text-white">{error}</div>
           )}
+
+          <ToolProgress
+            active={loading}
+            title="Проверяем AI-ботов..."
+            description="Сравниваем браузер и ответы LLM-ботов, затем готовим AI-ready сигналы страницы."
+          />
 
           {data && (
             <>

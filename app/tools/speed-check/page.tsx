@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import ToolProgress from '@/components/tool-progress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -152,24 +153,11 @@ export default function SpeedCheckPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fullLoading, setFullLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [data, setData] = useState<SpeedCheckResponse | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const requestIdRef = useRef(0);
 
   const isChecking = loading || fullLoading;
-
-  useEffect(() => {
-    if (!isChecking) return;
-
-    const limit = loading ? 35 : 92;
-    const step = loading ? 6 : 3;
-    const interval = setInterval(() => {
-      setProgress((current) => (current >= limit ? current : Math.min(limit, current + step)));
-    }, 350);
-
-    return () => clearInterval(interval);
-  }, [isChecking, loading, fullLoading]);
 
   const onCheck = async () => {
     if (!url.trim()) return;
@@ -179,7 +167,6 @@ export default function SpeedCheckPage() {
 
     setLoading(true);
     setFullLoading(false);
-    setProgress(5);
     setShowDetails(false);
     setError(null);
     setData(null);
@@ -200,7 +187,6 @@ export default function SpeedCheckPage() {
       }
 
       setData(quickPayload);
-      setProgress((current) => Math.max(current, 35));
       setFullLoading(true);
       setLoading(false);
 
@@ -233,8 +219,6 @@ export default function SpeedCheckPage() {
         );
         return;
       }
-
-      setProgress(100);
       setData(fullPayload);
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
@@ -272,27 +256,20 @@ export default function SpeedCheckPage() {
             <div className="mt-4 rounded-md bg-black px-4 py-3 text-sm text-white">{error}</div>
           )}
 
+          <ToolProgress
+            active={isChecking}
+            phase={loading ? 'initial' : 'deep'}
+            title={loading ? 'Проверяем ответ сервера...' : 'Анализируем Lighthouse...'}
+            description={
+              loading
+                ? 'Собираем TTFB, HTTP-кеш, CMS и CDN.'
+                : 'Собираем mobile и desktop метрики, opportunities и Lighthouse-сигналы.'
+            }
+          />
+
           {data && (
             <>
-              {isChecking ? (
-                <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
-                  <div className="flex items-center justify-between gap-4 text-sm font-medium text-gray-900">
-                    <span>{loading ? 'Проверяем ответ сервера...' : 'Анализируем Lighthouse...'}</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-200">
-                    <div
-                      className="h-full rounded-full bg-orange-500 transition-all duration-300"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  <div className="mt-3 text-sm text-gray-700">
-                    {loading
-                      ? 'Собираем TTFB, HTTP-кеш, CMS и CDN.'
-                      : 'Собираем mobile и desktop метрики, opportunities и Lighthouse-сигналы.'}
-                  </div>
-                </div>
-              ) : (
+              {isChecking ? null : (
                 <>
                   <div className={`mt-6 rounded-xl border px-4 py-4 ${verdictClass(data.verdict)}`}>
                     <div className="text-base font-semibold">{data.verdict_title}</div>

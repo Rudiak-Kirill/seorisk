@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { ArrowRight } from 'lucide-react';
+import ToolProgress from '@/components/tool-progress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -166,6 +167,7 @@ export default function SiteProfilePage() {
   const [data, setData] = useState<SiteProfileResponse | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const requestIdRef = useRef(0);
+  const isChecking = loading || fullLoading;
 
   const structureRows: Array<{ label: string; group: CountGroup }> = data
     ? [
@@ -266,14 +268,16 @@ export default function SiteProfilePage() {
             <div className="mt-4 rounded-md bg-black px-4 py-3 text-sm text-white">{error}</div>
           ) : null}
 
-          {data?.phase === 'quick' || fullLoading ? (
-            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-blue-700">
-              <div className="font-medium">Читаем структуру сайта...</div>
-              <div className="mt-1">
-                {data?.loading_text || 'Анализируем профиль...'}
-              </div>
-            </div>
-          ) : null}
+          <ToolProgress
+            active={isChecking}
+            phase={loading ? 'initial' : 'deep'}
+            title={loading ? 'Читаем структуру сайта...' : 'Анализируем профиль...'}
+            description={
+              loading
+                ? 'Собираем robots.txt, sitemap, главное меню и базовые сигналы.'
+                : data?.loading_text || 'Определяем тип сайта, сигналы и итоговый профиль.'
+            }
+          />
 
           {data && data.phase === 'full' ? (
             <>
