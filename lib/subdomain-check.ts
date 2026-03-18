@@ -12,6 +12,10 @@ const COMMON_BRUTE_PREFIXES = [
   'www',
   'mail',
   'api',
+  'ru',
+  'rus',
+  'en',
+  'eng',
   'dev',
   'test',
   'stage',
@@ -39,6 +43,8 @@ const COMMON_BRUTE_PREFIXES = [
   'm',
   'mobile',
   'wap',
+  'kz',
+  'by',
 ] as const;
 
 const REGIONAL_PREFIX_TO_CITY: Record<string, string> = {
@@ -72,6 +78,14 @@ const TECHNICAL_PREFIXES = new Set([
 const ENVIRONMENT_PREFIXES = new Set(['dev', 'test', 'stage', 'beta', 'demo', 'old', 'new']);
 const APPLICATION_PREFIXES = new Set(['app', 'lk', 'cabinet', 'panel', 'admin']);
 const CONTENT_PREFIXES = new Set(['blog', 'news', 'help', 'support', 'docs', 'wiki', 'shop', 'store']);
+const LOCALE_PREFIX_TO_LABEL: Record<string, string> = {
+  ru: 'Русская версия',
+  rus: 'Русская версия',
+  en: 'English version',
+  eng: 'English version',
+  kz: 'Казахстан',
+  by: 'Беларусь',
+};
 
 const CITY_NAME_PATTERNS: Array<{ city: string; pattern: RegExp }> = [
   { city: 'Москва', pattern: /\b(москва|moscow)\b/i },
@@ -103,6 +117,17 @@ export type SubdomainRiskCard = {
   title: string;
   description: string;
   action: string;
+  kind?:
+    | 'environment-open'
+    | 'duplicate-main'
+    | 'old-open'
+    | 'regional-no-hreflang'
+    | 'api-no-robots'
+    | 'application-open'
+    | 'technical-open'
+    | 'redirect-external'
+    | 'cert-ghost'
+    | 'cert-ghost-group';
 };
 
 export type RegionalSubdomainItem = {
@@ -455,10 +480,27 @@ function parseRobotsSitemaps(text: string, origin: string) {
 function detectCategory(host: string, domain: string, title: string | null) {
   const subPart = host.slice(0, -(domain.length + 1));
   const labels = subPart.split('.').filter(Boolean);
-  const first = labels[0]?.toLowerCase() || '';
+  const normalizedLabels = labels.map((label) => label.toLowerCase());
+  const first = normalizedLabels[0] || '';
+  const hasEnvironmentLabel = normalizedLabels.some((label) =>
+    /(^|[-.])(dev|test|stage|staging|beta|demo|sandbox|preprod|apptest|qa)(\d+)?($|[-.])/i.test(label)
+  );
+  const hasApplicationLabel = normalizedLabels.some((label) =>
+    /(^|[-.])(app|lk|cabinet|panel|admin|auth)(\d+)?($|[-.])/i.test(label)
+  );
+  const hasTechnicalLabel = normalizedLabels.some((label) =>
+    /(^|[-.])(mail|smtp|ftp|ns1|ns2|api|cdn|static|img|images|media|files)(\d+)?($|[-.])/i.test(label)
+  );
+  const hasContentLabel = normalizedLabels.some((label) =>
+    /(^|[-.])(blog|news|help|support|docs|wiki|shop|store|offer)(\d+)?($|[-.])/i.test(label)
+  );
 
   if (REGIONAL_PREFIX_TO_CITY[first]) {
     return { category: 'regional' as const, city: REGIONAL_PREFIX_TO_CITY[first] };
+  }
+
+  if (LOCALE_PREFIX_TO_LABEL[first]) {
+    return { category: 'regional' as const, city: LOCALE_PREFIX_TO_LABEL[first] };
   }
 
   if (CITY_NAME_PATTERNS.some(({ pattern }) => pattern.test(title || ''))) {
@@ -466,10 +508,10 @@ function detectCategory(host: string, domain: string, title: string | null) {
     return { category: city ? ('regional' as const) : ('unknown' as const), city };
   }
 
-  if (TECHNICAL_PREFIXES.has(first)) return { category: 'technical' as const, city: null };
-  if (ENVIRONMENT_PREFIXES.has(first)) return { category: 'environment' as const, city: null };
-  if (APPLICATION_PREFIXES.has(first)) return { category: 'application' as const, city: null };
-  if (CONTENT_PREFIXES.has(first)) return { category: 'content' as const, city: null };
+  if (hasEnvironmentLabel || ENVIRONMENT_PREFIXES.has(first)) return { category: 'environment' as const, city: null };
+  if (hasApplicationLabel || APPLICATION_PREFIXES.has(first)) return { category: 'application' as const, city: null };
+  if (hasTechnicalLabel || TECHNICAL_PREFIXES.has(first)) return { category: 'technical' as const, city: null };
+  if (hasContentLabel || CONTENT_PREFIXES.has(first)) return { category: 'content' as const, city: null };
 
   return { category: 'unknown' as const, city: null };
 }
@@ -553,9 +595,21 @@ function createRiskCards(
 ): SubdomainRiskCard[] {
   const firstLabel = item.host.slice(0, -(domain.length + 1)).split('.')[0]?.toLowerCase() || '';
   const cards: SubdomainRiskCard[] = [];
+  const redirectsOutsideMainDomain =
+    item.state === 'redirect' &&
+    !!item.redirectTarget &&
+    (() => {
+      try {
+        const hostname = new URL(item.redirectTarget).hostname.toLowerCase();
+        return hostname !== domain && !hostname.endsWith(`.${domain}`);
+      } catch {
+        return false;
+      }
+    })();
 
   if (item.category === 'environment' && isIndexable(item)) {
     cards.push({
+      kind: 'environment-open',
       severity: 'critical',
       host: item.host,
       title: `${item.host} открыт публично`,
@@ -566,6 +620,7 @@ function createRiskCards(
 
   if (item.sameTitleAsMain && item.state === 'working' && !item.noindex) {
     cards.push({
+      kind: 'duplicate-main',
       severity: 'critical',
       host: item.host,
       title: `${item.host} дублирует главный сайт`,
@@ -576,6 +631,7 @@ function createRiskCards(
 
   if (firstLabel === 'old' && isIndexable(item)) {
     cards.push({
+      kind: 'old-open',
       severity: 'critical',
       host: item.host,
       title: `${item.host} выглядит как старая версия`,
@@ -586,6 +642,7 @@ function createRiskCards(
 
   if (item.category === 'regional' && item.state === 'working' && item.hreflang === false) {
     cards.push({
+      kind: 'regional-no-hreflang',
       severity: 'warn',
       host: item.host,
       title: `${item.host} без hreflang`,
@@ -596,6 +653,7 @@ function createRiskCards(
 
   if (firstLabel === 'api' && item.state === 'working' && !item.robotsFound) {
     cards.push({
+      kind: 'api-no-robots',
       severity: 'warn',
       host: item.host,
       title: `${item.host} без robots.txt`,
@@ -604,8 +662,42 @@ function createRiskCards(
     });
   }
 
+  if (item.category === 'application' && isIndexable(item)) {
+    cards.push({
+      kind: 'application-open',
+      severity: 'warn',
+      host: item.host,
+      title: `${item.host} открыт для индексации`,
+      description: 'Поддомен личного кабинета, app или admin доступен как обычная публичная страница.',
+      action: 'Проверьте noindex, robots.txt или авторизацию, если этот поддомен не должен попадать в поиск.',
+    });
+  }
+
+  if (item.category === 'technical' && firstLabel !== 'api' && isIndexable(item)) {
+    cards.push({
+      kind: 'technical-open',
+      severity: 'warn',
+      host: item.host,
+      title: `${item.host} открыт как обычный сайт`,
+      description: 'Технический поддомен отдает публичную страницу и может попасть в индекс.',
+      action: 'Если этот хост не нужен в поиске, закройте его через robots.txt или noindex.',
+    });
+  }
+
+  if (redirectsOutsideMainDomain) {
+    cards.push({
+      kind: 'redirect-external',
+      severity: 'warn',
+      host: item.host,
+      title: `${item.host} редиректит на другой домен`,
+      description: `Поддомен ведет на ${item.redirectTarget}. Это стоит проверить в схеме редиректов.`,
+      action: 'Убедитесь, что редирект ожидаемый и вы не теряете канонический трафик.',
+    });
+  }
+
   if (includeCertGhostRisk && ['missing', 'timeout', 'closed', 'error'].includes(item.state)) {
     cards.push({
+      kind: 'cert-ghost',
       severity: 'warn',
       host: item.host,
       title: `${item.host} найден в сертификате, но не работает`,
@@ -615,6 +707,54 @@ function createRiskCards(
   }
 
   return cards;
+}
+
+function aggregateRiskCards(cards: SubdomainRiskCard[]) {
+  const certGhostCards = cards.filter((item) => item.kind === 'cert-ghost');
+  const redirectExternalCards = cards.filter((item) => item.kind === 'redirect-external');
+  const nextCards = [...cards];
+
+  if (certGhostCards.length >= 4) {
+    const examples = certGhostCards.slice(0, 5).map((item) => item.host);
+    const extraCount = certGhostCards.length - examples.length;
+    const summaryCard: SubdomainRiskCard = {
+      kind: 'cert-ghost-group',
+      severity: 'warn',
+      host: `${certGhostCards.length} поддоменов`,
+      title: `Найдено ${certGhostCards.length} поддоменов из сертификатов, которые не работают`,
+      description:
+        extraCount > 0
+          ? `Примеры: ${examples.join(', ')} и еще ${extraCount}. Это похоже на брошенные окружения или старые сервисные хосты.`
+          : `Примеры: ${examples.join(', ')}. Это похоже на брошенные окружения или старые сервисные хосты.`,
+      action:
+        'Проверьте, нужны ли эти хосты. Лишние удалите из DNS и сертификатов, рабочие — восстановите или закройте корректно.',
+    };
+
+    nextCards.splice(0, nextCards.length, ...nextCards.filter((item) => item.kind !== 'cert-ghost'), summaryCard);
+  }
+
+  if (redirectExternalCards.length >= 3) {
+    const examples = redirectExternalCards.slice(0, 3).map((item) => item.host);
+    const extraCount = redirectExternalCards.length - examples.length;
+    const summaryCard: SubdomainRiskCard = {
+      kind: 'redirect-external',
+      severity: 'warn',
+      host: `${redirectExternalCards.length} поддоменов`,
+      title: `Найдено ${redirectExternalCards.length} поддоменов с редиректом на другой домен`,
+      description:
+        extraCount > 0
+          ? `Примеры: ${examples.join(', ')} и еще ${extraCount}. Это похоже на старые окружения или внешнюю dev-инфраструктуру.`
+          : `Примеры: ${examples.join(', ')}. Это похоже на старые окружения или внешнюю dev-инфраструктуру.`,
+      action: 'Проверьте, нужны ли эти редиректы и не уходит ли SEO-сигнал на внешний домен.',
+    };
+
+    return [
+      ...nextCards.filter((item) => item.kind !== 'redirect-external'),
+      summaryCard,
+    ];
+  }
+
+  return nextCards;
 }
 
 function formatSource(source: SourceSet): 'crt.sh' | 'bruteforce' | 'mixed' {
@@ -837,13 +977,13 @@ export async function runSubdomainCheck(
     const riskLabel = cards[0]?.title || null;
     return {
       ...item,
+      cards,
       riskLevel,
       riskLabel,
     };
   });
 
-  const risks = enriched
-    .flatMap((item) => createRiskCards(item, domain, item.source.has('crt.sh')))
+  const risks = aggregateRiskCards(enriched.flatMap((item) => item.cards))
     .sort((a, b) => {
       if (a.severity !== b.severity) return a.severity === 'critical' ? -1 : 1;
       return a.host.localeCompare(b.host, 'ru');
