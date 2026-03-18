@@ -105,6 +105,11 @@ function progressWidth(value: number | null) {
   return `${Math.max(0, Math.min(100, value || 0))}%`;
 }
 
+function formatNumber(value: number | null) {
+  if (value === null || Number.isNaN(value)) return '—';
+  return new Intl.NumberFormat('ru-RU').format(value);
+}
+
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-1 border-b border-dashed border-gray-200 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -318,8 +323,11 @@ export default function SiteProfilePage() {
                     <div key={label}>
                       <div className="flex items-center justify-between gap-3 text-sm">
                         <span className="text-gray-700">{label}</span>
-                        <span className="text-gray-900">
-                          {group.count ?? '—'} {group.percent !== null ? `${group.percent}%` : ''}
+                        <span className="text-right text-gray-900">
+                          {formatNumber(group.count)}
+                          {group.percent !== null ? (
+                            <span className="ml-2 text-gray-500">{group.percent}%</span>
+                          ) : null}
                         </span>
                       </div>
                       <div className="mt-2 h-2 rounded-full bg-gray-100">
