@@ -66,16 +66,11 @@ type AiReadiness = {
   summary: string;
   cards: {
     availability: AiReadinessCard;
-    llm_txt: AiReadinessCard;
     schema: AiReadinessCard;
     faq: AiReadinessCard;
     content: AiReadinessCard;
   };
   details: {
-    llm_txt_url: string;
-    llm_txt_status: number;
-    llm_txt_conflict_rule: string | null;
-    llm_txt_conflict_agent: string | null;
     schema_types: string[];
     schema_priorities: {
       critical: { matched: string[]; total: number; tracked: string[] };
@@ -566,7 +561,7 @@ export default function LlmCheckPage() {
                     {data.ai_readiness.summary}
                   </div>
 
-                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                       <div className="text-sm font-semibold text-gray-900">Доступность</div>
                       <div
@@ -578,20 +573,6 @@ export default function LlmCheckPage() {
                       </div>
                       <div className="mt-2 text-sm text-gray-600">
                         {data.ai_readiness.cards.availability.description}
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                      <div className="text-sm font-semibold text-gray-900">llms.txt</div>
-                      <div
-                        className={`mt-3 break-words text-2xl font-semibold ${aiCardClass(
-                          data.ai_readiness.cards.llm_txt.status
-                        )}`}
-                      >
-                        {data.ai_readiness.cards.llm_txt.value}
-                      </div>
-                      <div className="mt-2 text-sm text-gray-600">
-                        {data.ai_readiness.cards.llm_txt.description}
                       </div>
                     </div>
 
@@ -765,29 +746,7 @@ export default function LlmCheckPage() {
                   </section>
 
                   {data.ai_readiness && (
-                    <section className="mt-6 grid gap-6 lg:grid-cols-3">
-                      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                        <h2 className="text-lg font-semibold text-gray-900">llms.txt</h2>
-                        <div className="mt-3 space-y-3 text-sm text-gray-600">
-                          <div>
-                            <div className="font-medium text-gray-900">URL</div>
-                            <div className="break-all">{data.ai_readiness.details.llm_txt_url || '—'}</div>
-                          </div>
-                          <div>
-                            <div className="font-medium text-gray-900">HTTP status</div>
-                            <div>{data.ai_readiness.details.llm_txt_status || '—'}</div>
-                          </div>
-                          <div>
-                            <div className="font-medium text-gray-900">Конфликт robots.txt</div>
-                            <div>
-                              {data.ai_readiness.details.llm_txt_conflict_rule
-                                ? `${data.ai_readiness.details.llm_txt_conflict_agent || 'agent'}: ${data.ai_readiness.details.llm_txt_conflict_rule}`
-                                : 'Нет'}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
+                    <section className="mt-6 grid gap-6 lg:grid-cols-2">
                       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                         <h2 className="text-lg font-semibold text-gray-900">Schema / FAQ</h2>
                         <div className="mt-3 space-y-3 text-sm text-gray-600">

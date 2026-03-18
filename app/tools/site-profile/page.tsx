@@ -71,6 +71,11 @@ type SiteProfileResponse = {
   };
   technical: {
     cms: string;
+    llms_txt: {
+      status: Status;
+      value: string;
+      description: string;
+    };
     analytics: {
       yandex: boolean;
       google: boolean;
@@ -91,6 +96,10 @@ type SiteProfileResponse = {
     registrar: string;
     robots_url: string;
     robots_found: boolean;
+    llms_txt_url: string;
+    llms_txt_status: number;
+    llms_txt_conflict_rule: string | null;
+    llms_txt_conflict_agent: string | null;
     sitemap_urls: string[];
   };
   error?: string;
@@ -386,10 +395,17 @@ export default function SiteProfilePage() {
 
               <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                 <h2 className="text-base font-semibold text-gray-900">Технический профиль</h2>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
                   <div>
                     <div className="text-xs uppercase tracking-wide text-gray-500">CMS</div>
                     <div className="mt-1 text-sm font-medium text-gray-900">{data.technical.cms}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-gray-500">llms.txt</div>
+                    <div className={`mt-1 text-sm font-medium ${statusClass(data.technical.llms_txt.status)}`}>
+                      {data.technical.llms_txt.value}
+                    </div>
+                    <div className="mt-1 text-sm text-gray-600">{data.technical.llms_txt.description}</div>
                   </div>
                   <div>
                     <div className="text-xs uppercase tracking-wide text-gray-500">Аналитика</div>
@@ -513,6 +529,22 @@ export default function SiteProfilePage() {
                           data.details.analytics_scripts.length
                             ? data.details.analytics_scripts.join(', ')
                             : 'не удалось определить'
+                        }
+                      />
+                      <DetailRow
+                        label="llms.txt URL"
+                        value={data.details.llms_txt_url || 'не удалось определить'}
+                      />
+                      <DetailRow
+                        label="llms.txt status"
+                        value={data.details.llms_txt_status || '—'}
+                      />
+                      <DetailRow
+                        label="Конфликт robots.txt"
+                        value={
+                          data.details.llms_txt_conflict_rule
+                            ? `${data.details.llms_txt_conflict_agent || 'agent'}: ${data.details.llms_txt_conflict_rule}`
+                            : 'Нет'
                         }
                       />
                       <DetailRow

@@ -11,22 +11,6 @@ const BROWSER_UA =
 
 const defaultAgents = ['gptbot', 'claudebot', 'perplexitybot'];
 
-const llmAgentTokens = [
-  'gptbot',
-  'chatgpt-user',
-  'oai-searchbot',
-  'claudebot',
-  'anthropic-ai',
-  'perplexitybot',
-  'youbot',
-  'applebot-extended',
-  'amazonbot',
-  'bytespider',
-  'diffbot',
-  'ccbot',
-  'cohere-ai',
-] as const;
-
 type Snapshot = {
   http_code: number;
   text_len: number;
@@ -88,16 +72,11 @@ type AiReadiness = {
   summary: string;
   cards: {
     availability: ReadinessCard;
-    llm_txt: ReadinessCard;
     schema: ReadinessCard;
     faq: ReadinessCard;
     content: ReadinessCard;
   };
   details: {
-    llm_txt_url: string;
-    llm_txt_status: number;
-    llm_txt_conflict_rule: string | null;
-    llm_txt_conflict_agent: string | null;
     schema_types: string[];
     schema_priorities: SchemaPriorityDetails;
     faq_signals: string[];
@@ -114,11 +93,6 @@ type FetchTextResult = {
   status: number;
   text: string;
   final_url: string;
-};
-
-type RobotsGroup = {
-  userAgents: string[];
-  rules: { directive: 'allow' | 'disallow'; value: string }[];
 };
 
 const schemaPriorityMap = {
@@ -481,124 +455,6 @@ function hasHiddenMainContent(html: string) {
   );
 }
 
-function isLlmTxtSyntaxOk(text: string) {
-  const cleanedLines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'));
-
-  if (!cleanedLines.length) return false;
-  if (text.includes('\u0000')) return false;
-
-  return cleanedLines.some(
-    (line) =>
-      /^https?:\/\//i.test(line) ||
-      /^[A-Za-z][A-Za-z0-9 _-]{1,40}:/i.test(line) ||
-      /^[-*]\s+/.test(line)
-  );
-}
-
-function parseRobotsTxt(text: string) {
-  const groups: RobotsGroup[] = [];
-  let currentAgents: string[] = [];
-  let currentRules: RobotsGroup['rules'] = [];
-
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.split('#', 1)[0]?.trim();
-    if (!line || !line.includes(':')) continue;
-
-    const [fieldRaw, ...rest] = line.split(':');
-    const field = fieldRaw.trim().toLowerCase();
-    const value = rest.join(':').trim();
-
-    if (field === 'user-agent') {
-      if (currentAgents.length) {
-        groups.push({ userAgents: currentAgents, rules: currentRules });
-        currentRules = [];
-      }
-      currentAgents = [...currentAgents, value.toLowerCase()];
-      continue;
-    }
-
-    if ((field === 'allow' || field === 'disallow') && currentAgents.length) {
-      currentRules.push({
-        directive: field,
-        value,
-      });
-    }
-  }
-
-  if (currentAgents.length) {
-    groups.push({ userAgents: currentAgents, rules: currentRules });
-  }
-
-  return groups;
-}
-
-function chooseRobotsGroup(groups: RobotsGroup[], targetUserAgent: string) {
-  let bestGroup: RobotsGroup | null = null;
-  let bestAgent: string | null = null;
-  let bestScore = -1;
-  const target = targetUserAgent.toLowerCase();
-
-  for (const group of groups) {
-    for (const agent of group.userAgents) {
-      let score = -1;
-
-      if (agent === target) score = 100;
-      else if (agent === '*') score = 1;
-      else if (target.startsWith(agent)) score = agent.length;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestGroup = group;
-        bestAgent = agent;
-      }
-    }
-  }
-
-  return { group: bestGroup, agent: bestAgent };
-}
-
-function evaluateRobots(group: RobotsGroup | null, pageUrl: string) {
-  if (!group) {
-    return { allowed: true, matchedRule: null as string | null };
-  }
-
-  const parsed = new URL(pageUrl);
-  const pagePath = parsed.pathname + parsed.search;
-  let matchedRule: { directive: 'allow' | 'disallow'; value: string } | null = null;
-  let matchedLength = -1;
-
-  for (const rule of group.rules) {
-    if (rule.directive === 'disallow' && rule.value === '') continue;
-    if (!pagePath.startsWith(rule.value)) continue;
-
-    if (rule.value.length > matchedLength) {
-      matchedRule = rule;
-      matchedLength = rule.value.length;
-      continue;
-    }
-
-    if (
-      rule.value.length === matchedLength &&
-      matchedRule?.directive === 'disallow' &&
-      rule.directive === 'allow'
-    ) {
-      matchedRule = rule;
-    }
-  }
-
-  if (!matchedRule) {
-    return { allowed: true, matchedRule: null as string | null };
-  }
-
-  return {
-    allowed: matchedRule.directive !== 'disallow',
-    matchedRule: `${matchedRule.directive}: ${matchedRule.value}`,
-  };
-}
-
 function buildAvailabilityCard(payload: LlmPayload): ReadinessCard {
   const checks = payload.checks || {};
   const botEntries = Object.entries(checks).filter(([key]) => key !== 'browser');
@@ -623,41 +479,6 @@ function buildAvailabilityCard(payload: LlmPayload): ReadinessCard {
       blocked.length === 1
         ? 'Один AI-бот не получает страницу.'
         : `${blocked.length} AI-ботов не получают страницу.`,
-  };
-}
-
-function buildLlmTxtCard(
-  llmTxt: FetchTextResult,
-  robotsConflict: { agent: string | null; rule: string | null }
-): ReadinessCard {
-  if (!llmTxt.ok || llmTxt.status === 404) {
-    return {
-      status: 'warn',
-      value: 'Нет',
-      description: 'Файл /llms.txt не найден.',
-    };
-  }
-
-  if (robotsConflict.rule) {
-    return {
-      status: 'fail',
-      value: 'Конфликт',
-      description: `robots.txt блокирует ${robotsConflict.agent || 'AI-ботов'}: ${robotsConflict.rule}.`,
-    };
-  }
-
-  if (!isLlmTxtSyntaxOk(llmTxt.text)) {
-    return {
-      status: 'warn',
-      value: 'Пустой',
-      description: 'Файл /llms.txt найден, но выглядит пустым или нечитаемым.',
-    };
-  }
-
-  return {
-    status: 'ok',
-    value: 'Найден',
-    description: 'Файл /llms.txt найден и выглядит корректно.',
   };
 }
 
@@ -952,10 +773,6 @@ function buildContentCard(html: string, text: string, pageUrl: string, finalUrl:
   return {
     card,
     details: {
-      llm_txt_url: '',
-      llm_txt_status: 0,
-      llm_txt_conflict_rule: null,
-      llm_txt_conflict_agent: null,
       schema_types: [],
       schema_priorities: {
         critical: {
@@ -1002,51 +819,12 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
     page.final_url || payload.url
   );
 
-  const siteRoot = (() => {
-    try {
-      const parsed = new URL(payload.url);
-      return parsed.origin;
-    } catch {
-      return '';
-    }
-  })();
-
-  const llmTxtUrl = siteRoot ? `${siteRoot}/llms.txt` : '';
-  const robotsUrl = siteRoot ? `${siteRoot}/robots.txt` : '';
-  const [llmTxt, robotsTxt] = await Promise.all([
-    llmTxtUrl
-      ? fetchText(llmTxtUrl)
-      : Promise.resolve({ ok: false, status: 0, text: '', final_url: '' }),
-    robotsUrl
-      ? fetchText(robotsUrl)
-      : Promise.resolve({ ok: false, status: 0, text: '', final_url: '' }),
-  ]);
-
-  let robotsConflict = { agent: null as string | null, rule: null as string | null };
-  if (robotsTxt.ok && robotsTxt.text) {
-    const groups = parseRobotsTxt(robotsTxt.text);
-
-    for (const token of llmAgentTokens) {
-      const chosen = chooseRobotsGroup(groups, token);
-      const evaluated = evaluateRobots(chosen.group, payload.url);
-      if (!evaluated.allowed) {
-        robotsConflict = {
-          agent: chosen.agent || token,
-          rule: evaluated.matchedRule,
-        };
-        break;
-      }
-    }
-  }
-
   const availabilityCard = buildAvailabilityCard(payload);
-  const llmTxtCard = buildLlmTxtCard(llmTxt, robotsConflict);
   const schemaCard = buildSchemaCard(schemaPriorityDetails);
   const faqCard = buildFaqCard(faqSignals);
 
   const cards = {
     availability: availabilityCard,
-    llm_txt: llmTxtCard,
     schema: schemaCard,
     faq: faqCard,
     content: contentCard,
@@ -1064,10 +842,6 @@ async function buildAiReadiness(payload: LlmPayload): Promise<AiReadiness> {
     cards,
     details: {
       ...details,
-      llm_txt_url: llmTxtUrl,
-      llm_txt_status: llmTxt.status,
-      llm_txt_conflict_rule: robotsConflict.rule,
-      llm_txt_conflict_agent: robotsConflict.agent,
       schema_types: schemaTypes,
       schema_priorities: schemaPriorityDetails,
       faq_signals: faqSignals,

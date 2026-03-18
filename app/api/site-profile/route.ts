@@ -113,6 +113,11 @@ type DetailSection = {
   count: number;
 };
 
+type RobotsGroup = {
+  userAgents: string[];
+  rules: { directive: 'allow' | 'disallow'; value: string }[];
+};
+
 type SiteProfileResponse = {
   ok: boolean;
   phase: Phase;
@@ -162,6 +167,11 @@ type SiteProfileResponse = {
   };
   technical: {
     cms: string;
+    llms_txt: {
+      status: Status;
+      value: string;
+      description: string;
+    };
     analytics: {
       yandex: boolean;
       google: boolean;
@@ -182,6 +192,10 @@ type SiteProfileResponse = {
     registrar: string;
     robots_url: string;
     robots_found: boolean;
+    llms_txt_url: string;
+    llms_txt_status: number;
+    llms_txt_conflict_rule: string | null;
+    llms_txt_conflict_agent: string | null;
     sitemap_urls: string[];
   };
   error?: string;
@@ -251,6 +265,22 @@ const sitemapBucketLabels: Record<SitemapBucket, string> = {
 const cityRegex =
   /\b(Москва|Санкт-Петербург|Новосибирск|Екатеринбург|Казань|Нижний Новгород|Челябинск|Самара|Омск|Ростов-на-Дону|Уфа|Краснодар|Пермь|Воронеж)\b/i;
 
+const llmAgentTokens = [
+  'gptbot',
+  'chatgpt-user',
+  'oai-searchbot',
+  'claudebot',
+  'anthropic-ai',
+  'perplexitybot',
+  'youbot',
+  'applebot-extended',
+  'amazonbot',
+  'bytespider',
+  'diffbot',
+  'ccbot',
+  'cohere-ai',
+] as const;
+
 function createEmptyFullResponse(inputUrl: string, siteUrl: string, finalUrl: string): SiteProfileResponse {
   return {
     ok: true,
@@ -296,6 +326,11 @@ function createEmptyFullResponse(inputUrl: string, siteUrl: string, finalUrl: st
     },
     technical: {
       cms: 'не удалось определить',
+      llms_txt: {
+        status: 'warn',
+        value: 'Нет',
+        description: 'Файл /llms.txt не найден.',
+      },
       analytics: {
         yandex: false,
         google: false,
@@ -316,6 +351,10 @@ function createEmptyFullResponse(inputUrl: string, siteUrl: string, finalUrl: st
       registrar: 'не удалось определить',
       robots_url: siteUrl ? `${siteUrl}/robots.txt` : '',
       robots_found: false,
+      llms_txt_url: siteUrl ? `${siteUrl}/llms.txt` : '',
+      llms_txt_status: 0,
+      llms_txt_conflict_rule: null,
+      llms_txt_conflict_agent: null,
       sitemap_urls: [],
     },
   };
@@ -777,6 +816,159 @@ function createEmptyWhois(rawSource: string) {
     ageYears: null,
     registrar: 'не удалось определить',
     rawSource,
+  };
+}
+
+function parseRobotsTxt(text: string) {
+  const groups: RobotsGroup[] = [];
+  let currentAgents: string[] = [];
+  let currentRules: RobotsGroup['rules'] = [];
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.split('#', 1)[0]?.trim();
+    if (!line || !line.includes(':')) continue;
+
+    const [fieldRaw, ...rest] = line.split(':');
+    const field = fieldRaw.trim().toLowerCase();
+    const value = rest.join(':').trim();
+
+    if (field === 'user-agent') {
+      if (currentAgents.length) {
+        groups.push({ userAgents: currentAgents, rules: currentRules });
+        currentRules = [];
+      }
+      currentAgents = [...currentAgents, value.toLowerCase()];
+      continue;
+    }
+
+    if ((field === 'allow' || field === 'disallow') && currentAgents.length) {
+      currentRules.push({
+        directive: field,
+        value,
+      });
+    }
+  }
+
+  if (currentAgents.length) {
+    groups.push({ userAgents: currentAgents, rules: currentRules });
+  }
+
+  return groups;
+}
+
+function chooseRobotsGroup(groups: RobotsGroup[], targetUserAgent: string) {
+  let bestGroup: RobotsGroup | null = null;
+  let bestAgent: string | null = null;
+  let bestScore = -1;
+  const target = targetUserAgent.toLowerCase();
+
+  for (const group of groups) {
+    for (const agent of group.userAgents) {
+      let score = -1;
+
+      if (agent === target) score = 100;
+      else if (agent === '*') score = 1;
+      else if (target.startsWith(agent)) score = agent.length;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestGroup = group;
+        bestAgent = agent;
+      }
+    }
+  }
+
+  return { group: bestGroup, agent: bestAgent };
+}
+
+function evaluateRobots(group: RobotsGroup | null, pageUrl: string) {
+  if (!group) {
+    return { allowed: true, matchedRule: null as string | null };
+  }
+
+  const parsed = new URL(pageUrl);
+  const pagePath = parsed.pathname + parsed.search;
+  let matchedRule: { directive: 'allow' | 'disallow'; value: string } | null = null;
+  let matchedLength = -1;
+
+  for (const rule of group.rules) {
+    if (rule.directive === 'disallow' && rule.value === '') continue;
+    if (!pagePath.startsWith(rule.value)) continue;
+
+    if (rule.value.length > matchedLength) {
+      matchedRule = rule;
+      matchedLength = rule.value.length;
+      continue;
+    }
+
+    if (
+      rule.value.length === matchedLength &&
+      matchedRule?.directive === 'disallow' &&
+      rule.directive === 'allow'
+    ) {
+      matchedRule = rule;
+    }
+  }
+
+  if (!matchedRule) {
+    return { allowed: true, matchedRule: null as string | null };
+  }
+
+  return {
+    allowed: matchedRule.directive !== 'disallow',
+    matchedRule: `${matchedRule.directive}: ${matchedRule.value}`,
+  };
+}
+
+function isLlmTxtSyntaxOk(text: string) {
+  const cleanedLines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+
+  if (!cleanedLines.length) return false;
+  if (text.includes('\u0000')) return false;
+
+  return cleanedLines.some(
+    (line) =>
+      /^https?:\/\//i.test(line) ||
+      /^[A-Za-z][A-Za-z0-9 _-]{1,40}:/i.test(line) ||
+      /^[-*]\s+/.test(line)
+  );
+}
+
+function buildLlmsTxtStatus(
+  llmsTxt: TextFetchResult,
+  robotsConflict: { agent: string | null; rule: string | null }
+) {
+  if (!llmsTxt.ok || llmsTxt.status === 404) {
+    return {
+      status: 'warn' as const,
+      value: 'Нет',
+      description: 'Файл /llms.txt не найден.',
+    };
+  }
+
+  if (robotsConflict.rule) {
+    return {
+      status: 'fail' as const,
+      value: 'Конфликт',
+      description: `robots.txt блокирует ${robotsConflict.agent || 'AI-ботов'}: ${robotsConflict.rule}.`,
+    };
+  }
+
+  if (!isLlmTxtSyntaxOk(llmsTxt.text)) {
+    return {
+      status: 'warn' as const,
+      value: 'Пустой',
+      description: 'Файл /llms.txt найден, но выглядит пустым или нечитаемым.',
+    };
+  }
+
+  return {
+    status: 'ok' as const,
+    value: 'Найден',
+    description: 'Файл /llms.txt найден и выглядит корректно.',
   };
 }
 
@@ -1678,7 +1870,11 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
   ];
 
   const robotsUrl = `${finalSiteUrl}/robots.txt`;
-  const robotsResponse = await fetchText(robotsUrl);
+  const llmsTxtUrl = `${finalSiteUrl}/llms.txt`;
+  const [robotsResponse, llmsTxtResponse] = await Promise.all([
+    fetchText(robotsUrl),
+    fetchText(llmsTxtUrl),
+  ]);
   const sitemapCandidates = robotsResponse.text
     ? parseRobotsSitemapUrls(robotsResponse.text, finalSiteUrl)
     : [];
@@ -1688,6 +1884,23 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
   const cms = detectCms(homeResponse.text, homeResponse.headers);
   const { analytics, scripts } = detectAnalytics(homeResponse.text);
   const detectedSignals = detectSiteSignals(pageDocs);
+  let llmsTxtConflict = { agent: null as string | null, rule: null as string | null };
+  if (robotsResponse.ok && robotsResponse.text) {
+    const groups = parseRobotsTxt(robotsResponse.text);
+
+    for (const token of llmAgentTokens) {
+      const chosen = chooseRobotsGroup(groups, token);
+      const evaluated = evaluateRobots(chosen.group, finalHomeUrl);
+      if (!evaluated.allowed) {
+        llmsTxtConflict = {
+          agent: chosen.agent || token,
+          rule: evaluated.matchedRule,
+        };
+        break;
+      }
+    }
+  }
+  const llmsTxtStatus = buildLlmsTxtStatus(llmsTxtResponse, llmsTxtConflict);
   const whois = await fetchDomainWhois(finalHostname);
   const classificationFallback = deriveHeuristicProfile({
     title,
@@ -1785,6 +1998,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
 
   const technical: SiteProfileResponse['technical'] = {
     cms,
+    llms_txt: llmsTxtStatus,
     analytics,
   };
 
@@ -1833,6 +2047,10 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
       registrar: whois.registrar,
       robots_url: robotsUrl,
       robots_found: robotsResponse.ok,
+      llms_txt_url: llmsTxtUrl,
+      llms_txt_status: llmsTxtResponse.status,
+      llms_txt_conflict_rule: llmsTxtConflict.rule,
+      llms_txt_conflict_agent: llmsTxtConflict.agent,
       sitemap_urls: sitemapCrawl.visited,
     },
   };
