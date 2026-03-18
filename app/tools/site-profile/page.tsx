@@ -116,6 +116,18 @@ function formatPagesCount(value: number | null) {
   return `${new Intl.NumberFormat('ru-RU').format(value)} стр.`;
 }
 
+function normalizeSiteInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  try {
+    const prepared = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    return new URL(prepared).origin;
+  } catch {
+    return trimmed;
+  }
+}
+
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-1 border-b border-dashed border-gray-200 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -186,10 +198,12 @@ export default function SiteProfilePage() {
     : [];
 
   const onCheck = async () => {
-    if (!url.trim()) return;
+    const normalizedUrl = normalizeSiteInput(url);
+    if (!normalizedUrl) return;
 
     requestIdRef.current += 1;
     const requestId = requestIdRef.current;
+    setUrl(normalizedUrl);
 
     setLoading(true);
     setFullLoading(false);
@@ -201,7 +215,7 @@ export default function SiteProfilePage() {
       const quickResponse = await fetch('/api/site-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, phase: 'quick' }),
+        body: JSON.stringify({ url: normalizedUrl, phase: 'quick' }),
       });
       const quickPayload = (await quickResponse.json()) as SiteProfileResponse;
 
@@ -219,7 +233,7 @@ export default function SiteProfilePage() {
       const fullResponse = await fetch('/api/site-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, phase: 'full' }),
+        body: JSON.stringify({ url: normalizedUrl, phase: 'full' }),
       });
       const fullPayload = (await fullResponse.json()) as SiteProfileResponse;
 
@@ -258,6 +272,7 @@ export default function SiteProfilePage() {
               placeholder="https://example.com"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
+              onBlur={() => setUrl((current) => normalizeSiteInput(current))}
             />
             <Button className="rounded-full" onClick={onCheck} disabled={loading || fullLoading}>
               {loading ? 'Читаем сайт...' : fullLoading ? 'Анализируем...' : 'Анализировать'}
