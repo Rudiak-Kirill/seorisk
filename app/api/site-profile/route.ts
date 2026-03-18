@@ -92,6 +92,22 @@ type SignalItem = {
   value: string;
 };
 
+type DetectedSiteSignals = {
+  phoneFound: boolean;
+  pricesFound: boolean;
+  cartFound: boolean;
+  formFound: boolean;
+  requisitesFound: boolean;
+  addressFound: boolean;
+  emailFound: boolean;
+  reviewsFound: boolean;
+  chatFound: boolean;
+  messengerFound: boolean;
+  docsFound: boolean;
+  faqFound: boolean;
+  demoFound: boolean;
+};
+
 type DetailSection = {
   section: string;
   count: number;
@@ -1079,7 +1095,7 @@ function buildSignal(label: string, found: boolean, positiveValue: string, negat
   };
 }
 
-function analyzeCommercialSignals(pages: PageDoc[]) {
+function detectSiteSignals(pages: PageDoc[]): DetectedSiteSignals {
   const html = pages.map((page) => page.html).join('\n');
   const text = pages.map((page) => page.text).join('\n');
   const htmlLower = html.toLowerCase();
@@ -1116,23 +1132,90 @@ function analyzeCommercialSignals(pages: PageDoc[]) {
   const chatFound =
     /(jivosite|jivo|bitrix24|tawk\.to|livetex|usedesk|chatra)/i.test(htmlLower);
   const messengerFound = /(wa\.me|whatsapp|t\.me|telegram)/i.test(htmlLower);
+  const docsFound =
+    /(documentation|knowledge base|developer|api docs|docs\b|документац|база знаний|руководств|инструкц)/i.test(
+      htmlLower
+    ) || /\/(?:docs|documentation|help|api|knowledge-base)\b/i.test(htmlLower);
+  const faqFound =
+    /(faq|частые вопросы|вопросы и ответы|вопрос-ответ)/i.test(textLower) ||
+    /\/(?:faq|questions|question|answer|voprosy-otvety)\b/i.test(htmlLower);
+  const demoFound =
+    /(demo|trial|бесплатн(ая|ый|ое) пробн|запросить демо|получить демо|регистрация|зарегистрироваться|личный кабинет|войти)/i.test(
+      textLower
+    ) || /\/(?:demo|trial|register|signup|sign-up|sign-in|login|lk|cabinet)\b/i.test(htmlLower);
 
-  const critical = [
-    buildSignal('Телефон', phoneFound, 'Телефон найден', 'Телефон не найден'),
-    buildSignal('Цены', pricesFound, 'Цены найдены', 'Цены не найдены'),
-    buildSignal('Корзина', cartFound, 'Корзина найдена', 'Корзина не найдена'),
-    buildSignal('Форма заявки', formFound, 'Форма заявки найдена', 'Форма заявки не найдена'),
-  ];
-  const important = [
-    buildSignal('Реквизиты', requisitesFound, 'Реквизиты найдены', 'Реквизиты не найдены'),
-    buildSignal('Адрес', addressFound, 'Адрес найден', 'Адрес не найден'),
-    buildSignal('Email', emailFound, 'Email найден', 'Email не найден'),
-    buildSignal('Отзывы', reviewsFound, 'Отзывы найдены', 'Отзывы не найдены'),
-  ];
+  return {
+    phoneFound,
+    pricesFound,
+    cartFound,
+    formFound,
+    requisitesFound,
+    addressFound,
+    emailFound,
+    reviewsFound,
+    chatFound,
+    messengerFound,
+    docsFound,
+    faqFound,
+    demoFound,
+  };
+}
+
+function analyzeCommercialSignals(signals: DetectedSiteSignals, siteType: string) {
+  const normalizedType = siteType.toLowerCase();
+
+  let critical: SignalItem[];
+  let important: SignalItem[];
   const additional = [
-    buildSignal('Чат виджет', chatFound, 'Чат найден', 'Чат не найден'),
-    buildSignal('Мессенджеры', messengerFound, 'Мессенджеры найдены', 'Мессенджеры не найдены'),
+    buildSignal('Чат виджет', signals.chatFound, 'Чат найден', 'Чат не найден'),
+    buildSignal('Мессенджеры', signals.messengerFound, 'Мессенджеры найдены', 'Мессенджеры не найдены'),
   ];
+
+  if (normalizedType.includes('saas') || normalizedType.includes('сервис')) {
+    critical = [
+      buildSignal('Телефон', signals.phoneFound, 'Телефон найден', 'Телефон не найден'),
+      buildSignal('Email', signals.emailFound, 'Email найден', 'Email не найден'),
+      buildSignal('Форма заявки', signals.formFound, 'Форма заявки найдена', 'Форма заявки не найдена'),
+      buildSignal('Демо/регистрация', signals.demoFound, 'Демо или регистрация найдены', 'Демо или регистрация не найдены'),
+    ];
+    important = [
+      buildSignal('Документация', signals.docsFound, 'Документация найдена', 'Документация не найдена'),
+      buildSignal('FAQ', signals.faqFound, 'FAQ найден', 'FAQ не найден'),
+      buildSignal('Реквизиты', signals.requisitesFound, 'Реквизиты найдены', 'Реквизиты не найдены'),
+      buildSignal('Отзывы', signals.reviewsFound, 'Отзывы найдены', 'Отзывы не найдены'),
+    ];
+  } else if (
+    normalizedType.includes('корпоратив') ||
+    normalizedType.includes('лендинг') ||
+    normalizedType.includes('агрегатор') ||
+    normalizedType.includes('блог')
+  ) {
+    critical = [
+      buildSignal('Телефон', signals.phoneFound, 'Телефон найден', 'Телефон не найден'),
+      buildSignal('Email', signals.emailFound, 'Email найден', 'Email не найден'),
+      buildSignal('Форма заявки', signals.formFound, 'Форма заявки найдена', 'Форма заявки не найдена'),
+      buildSignal('Адрес', signals.addressFound, 'Адрес найден', 'Адрес не найден'),
+    ];
+    important = [
+      buildSignal('Реквизиты', signals.requisitesFound, 'Реквизиты найдены', 'Реквизиты не найдены'),
+      buildSignal('FAQ', signals.faqFound, 'FAQ найден', 'FAQ не найден'),
+      buildSignal('Отзывы', signals.reviewsFound, 'Отзывы найдены', 'Отзывы не найдены'),
+      buildSignal('Документация', signals.docsFound, 'Документация найдена', 'Документация не найдена'),
+    ];
+  } else {
+    critical = [
+      buildSignal('Телефон', signals.phoneFound, 'Телефон найден', 'Телефон не найден'),
+      buildSignal('Цены', signals.pricesFound, 'Цены найдены', 'Цены не найдены'),
+      buildSignal('Корзина', signals.cartFound, 'Корзина найдена', 'Корзина не найдена'),
+      buildSignal('Форма заявки', signals.formFound, 'Форма заявки найдена', 'Форма заявки не найдена'),
+    ];
+    important = [
+      buildSignal('Реквизиты', signals.requisitesFound, 'Реквизиты найдены', 'Реквизиты не найдены'),
+      buildSignal('Адрес', signals.addressFound, 'Адрес найден', 'Адрес не найден'),
+      buildSignal('Email', signals.emailFound, 'Email найден', 'Email не найден'),
+      buildSignal('Отзывы', signals.reviewsFound, 'Отзывы найдены', 'Отзывы не найдены'),
+    ];
+  }
 
   return {
     critical: {
@@ -1160,7 +1243,7 @@ function deriveHeuristicProfile(input: {
   menuLabels: string[];
   previewText: string;
   structure: SiteProfileResponse['structure'];
-  commerce: SiteProfileResponse['commerce'];
+  signals: DetectedSiteSignals;
   cms: string;
 }) {
   const haystack = [
@@ -1181,7 +1264,7 @@ function deriveHeuristicProfile(input: {
   ) {
     siteType = 'SaaS-сервис';
   } else if (
-    input.commerce.critical.items.find((item) => item.label === 'Корзина')?.status === 'ok' ||
+    input.signals.cartFound ||
     (input.structure.commercial.percent !== null && input.structure.commercial.percent >= 40)
   ) {
     siteType = 'интернет-магазин';
@@ -1195,7 +1278,7 @@ function deriveHeuristicProfile(input: {
   } else if (
     input.structure.total_urls !== null &&
     input.structure.total_urls <= 20 &&
-    input.commerce.critical.items.find((item) => item.label === 'Форма заявки')?.status === 'ok'
+    input.signals.formFound
   ) {
     siteType = 'лендинг';
   } else if (/о компании|контакты|услуги|решения|команда/i.test(haystack)) {
@@ -1582,7 +1665,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
   const structureSummary = buildStructureSummary(sitemapCrawl.entries);
   const cms = detectCms(homeResponse.text, homeResponse.headers);
   const { analytics, scripts } = detectAnalytics(homeResponse.text);
-  const commerce = analyzeCommercialSignals(pageDocs);
+  const detectedSignals = detectSiteSignals(pageDocs);
   const whois = await fetchDomainWhois(finalHostname);
   const classificationFallback = deriveHeuristicProfile({
     title,
@@ -1605,7 +1688,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
       service: structureSummary.service,
       unknown: structureSummary.unknown,
     },
-    commerce,
+    signals: detectedSignals,
     cms,
   });
 
@@ -1635,6 +1718,8 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
         ? classificationLlm.region
         : classificationFallback.region,
   };
+
+  const commerce = analyzeCommercialSignals(detectedSignals, classification.site_type);
 
   const searchSignals = await fetchSearchSignals(finalHostname);
 
