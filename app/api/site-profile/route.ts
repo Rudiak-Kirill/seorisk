@@ -58,6 +58,12 @@ type SiteClassification = {
   region: string;
 };
 
+type SearchSignals = {
+  google_index: string;
+  yandex_index: string;
+  yandex_iks: string;
+};
+
 type CountGroup = {
   count: number | null;
   percent: number | null;
@@ -1100,6 +1106,35 @@ function sanitizeValue(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : 'не удалось определить';
 }
 
+async function fetchSearchSignals(domain: string): Promise<SearchSignals> {
+  const relayResult = await callRelayJson<Partial<SearchSignals>>('/api/site-profile/search-signals', {
+    domain,
+  });
+
+  const fallbackUnavailable = 'не удалось получить';
+  const relayGoogle = sanitizeValue(relayResult?.google_index);
+  const relayYandex = sanitizeValue(relayResult?.yandex_index);
+  const relayIks = sanitizeValue(relayResult?.yandex_iks);
+
+  const [google_index, yandex_index, yandex_iks] = await Promise.all([
+    relayGoogle !== 'не удалось определить' && relayGoogle !== fallbackUnavailable
+      ? Promise.resolve(relayGoogle)
+      : fetchSearchIndexCount('google', domain),
+    relayYandex !== 'не удалось определить' && relayYandex !== fallbackUnavailable
+      ? Promise.resolve(relayYandex)
+      : fetchSearchIndexCount('yandex', domain),
+    relayIks !== 'не удалось определить' && relayIks !== fallbackUnavailable
+      ? Promise.resolve(relayIks)
+      : fetchYandexIks(domain),
+  ]);
+
+  return {
+    google_index,
+    yandex_index,
+    yandex_iks,
+  };
+}
+
 async function classifySiteWithLlm(input: {
   title: string;
   h1: string;
@@ -1407,11 +1442,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
         : classificationFallback.region,
   };
 
-  const [yandexIndex, googleIndex, yandexIks] = await Promise.all([
-    fetchSearchIndexCount('yandex', finalHostname),
-    fetchSearchIndexCount('google', finalHostname),
-    fetchYandexIks(finalHostname),
-  ]);
+  const searchSignals = await fetchSearchSignals(finalHostname);
 
   const structure: SiteProfileResponse['structure'] = {
     sitemap_found: sitemapCrawl.entries.length > 0,
@@ -1439,9 +1470,9 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
       : { level1: null, level2: null, level3plus: null },
     lastmod_latest: structureSummary.lastmodLatest,
     updated_last30: sitemapCrawl.entries.length ? structureSummary.updatedLast30 : null,
-    yandex_index: yandexIndex,
-    google_index: googleIndex,
-    yandex_iks: yandexIks,
+    yandex_index: searchSignals.yandex_index,
+    google_index: searchSignals.google_index,
+    yandex_iks: searchSignals.yandex_iks,
     message: !sitemapCrawl.entries.length
       ? 'Sitemap не найден — структуру сайта не удалось определить'
       : sitemapCrawl.truncatedByUrlLimit

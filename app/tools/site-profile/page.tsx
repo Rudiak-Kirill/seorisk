@@ -110,6 +110,11 @@ function formatNumber(value: number | null) {
   return new Intl.NumberFormat('ru-RU').format(value);
 }
 
+function formatPagesCount(value: number | null) {
+  if (value === null || Number.isNaN(value)) return '—';
+  return `${new Intl.NumberFormat('ru-RU').format(value)} стр.`;
+}
+
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-1 border-b border-dashed border-gray-200 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -323,12 +328,14 @@ export default function SiteProfilePage() {
                     <div key={label}>
                       <div className="flex items-center justify-between gap-3 text-sm">
                         <span className="text-gray-700">{label}</span>
-                        <span className="text-right text-gray-900">
-                          {formatNumber(group.count)}
-                          {group.percent !== null ? (
-                            <span className="ml-2 text-gray-500">{group.percent}%</span>
-                          ) : null}
-                        </span>
+                        <div className="flex items-center gap-3 text-right">
+                          <span className="min-w-[92px] text-sm font-medium text-gray-900">
+                            {formatPagesCount(group.count)}
+                          </span>
+                          <span className="min-w-[50px] rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                            {group.percent !== null ? `${group.percent}%` : '—'}
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-2 h-2 rounded-full bg-gray-100">
                         <div
