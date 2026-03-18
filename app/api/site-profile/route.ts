@@ -1,5 +1,6 @@
 import { createConnection } from 'node:net';
 import { NextResponse } from 'next/server';
+import { getSubdomainSummary } from '@/lib/subdomain-check';
 
 export const runtime = 'nodejs';
 
@@ -179,6 +180,12 @@ type SiteProfileResponse = {
       facebook: boolean;
     };
   };
+  subdomains: {
+    found: number | null;
+    checked: number | null;
+    risks: number | null;
+    message: string | null;
+  };
   details: {
     menu_pages: MenuLink[];
     sitemap_sections: DetailSection[];
@@ -337,6 +344,12 @@ function createEmptyFullResponse(inputUrl: string, siteUrl: string, finalUrl: st
         vk: false,
         facebook: false,
       },
+    },
+    subdomains: {
+      found: null,
+      checked: null,
+      risks: null,
+      message: null,
     },
     details: {
       menu_pages: [],
@@ -1718,6 +1731,7 @@ async function summarizeProfileWithLlm(input: {
   structure: SiteProfileResponse['structure'];
   commerce: SiteProfileResponse['commerce'];
   technical: SiteProfileResponse['technical'];
+  subdomains: SiteProfileResponse['subdomains'];
   whois: {
     ageYears: number | null;
     registrar: string;
@@ -2002,11 +2016,19 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     analytics,
   };
 
+  const subdomains = await getSubdomainSummary(finalHostname).catch(() => ({
+    found: null,
+    checked: null,
+    risks: null,
+    message: 'не удалось проверить',
+  }));
+
   const verdictText = await summarizeProfileWithLlm({
     classification,
     structure,
     commerce,
     technical,
+    subdomains,
     whois: {
       ageYears: whois.ageYears,
       registrar: whois.registrar,
@@ -2033,6 +2055,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     structure,
     commerce,
     technical,
+    subdomains,
     details: {
       menu_pages: menuLinks.slice(0, 6),
       sitemap_sections: structureSummary.sections,

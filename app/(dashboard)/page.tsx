@@ -10,7 +10,7 @@ const siteUrl = getSiteUrl();
 export const metadata: Metadata = {
   title: 'SEO для CEO — проверка рендеринга и индексируемости | SEORISK.RU',
   description:
-    'Проверьте как ваш сайт видят браузер, Googlebot, Яндекс и LLM-боты. Бесплатные инструменты: SSR Check, LLM Check, Index Check, Speed Check и Site Profile. Найдите причину почему сайт не индексируется или тормозит за 30 секунд.',
+    'Проверьте как ваш сайт видят браузер, Googlebot, Яндекс и LLM-боты. Бесплатные инструменты: SSR Check, LLM Check, Index Check, Speed Check, Site Profile и Subdomain Check. Найдите причину почему сайт не индексируется или тормозит за 30 секунд.',
   alternates: {
     canonical: `${siteUrl}/`,
   },
@@ -50,6 +50,11 @@ const tools = [
     title: 'Site Profile',
     description: 'Тип сайта, структура sitemap и коммерческие сигналы в одном экране',
     href: '/tools/site-profile',
+  },
+  {
+    title: 'Subdomain Check',
+    description: 'Поддомены, dev/test/stage, региональная структура и SEO-риски',
+    href: '/tools/subdomain-check',
   },
 ];
 
@@ -113,8 +118,8 @@ export default async function HomePage() {
               <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                 <h2 className="text-lg font-semibold text-gray-900">Инструменты</h2>
                 <p className="mt-2 text-sm text-gray-700">
-                  Пять отдельных проверок: рендеринг для SEO-ботов, ответы LLM-ботам,
-                  индексируемость страницы, скорость и профиль сайта.
+                  Шесть отдельных проверок: рендеринг для SEO-ботов, ответы LLM-ботам,
+                  индексируемость страницы, скорость, профиль сайта и поддомены.
                 </p>
 
                 <div className="mt-4 grid gap-3">

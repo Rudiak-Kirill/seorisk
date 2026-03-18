@@ -83,6 +83,12 @@ type SiteProfileResponse = {
       facebook: boolean;
     };
   };
+  subdomains: {
+    found: number | null;
+    checked: number | null;
+    risks: number | null;
+    message: string | null;
+  };
   details: {
     menu_pages: { label: string; url: string }[];
     sitemap_sections: { section: string; count: number }[];
@@ -416,6 +422,34 @@ export default function SiteProfilePage() {
                       {data.technical.analytics.facebook ? '✅' : '⚠️'}
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <h2 className="text-base font-semibold text-gray-900">Поддомены</h2>
+                <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-sm text-gray-700">
+                      Найдено:{' '}
+                      <span className="font-semibold text-gray-900">
+                        {data.subdomains.found !== null ? formatNumber(data.subdomains.found) : 'не удалось определить'}
+                      </span>
+                      {' '}· Рисков:{' '}
+                      <span className="font-semibold text-gray-900">
+                        {data.subdomains.risks !== null ? formatNumber(data.subdomains.risks) : '—'}
+                      </span>
+                    </div>
+                    {data.subdomains.message ? (
+                      <div className="mt-2 text-sm text-gray-500">{data.subdomains.message}</div>
+                    ) : null}
+                  </div>
+                  <Link
+                    href={`/tools/subdomain-check?domain=${encodeURIComponent(data.site_url)}`}
+                    className="inline-flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-900 transition hover:border-gray-300"
+                  >
+                    Подробный анализ
+                    <ArrowRight className="ml-2 h-4 w-4 text-orange-500" />
+                  </Link>
                 </div>
               </div>
 
