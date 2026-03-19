@@ -640,6 +640,16 @@ function parseRobotsSitemapUrls(text: string, siteUrl: string) {
     .filter(Boolean);
 }
 
+function looksLikeSitemapUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    const pathname = parsed.pathname.toLowerCase();
+    return pathname.endsWith('.xml') || pathname.includes('sitemap');
+  } catch {
+    return false;
+  }
+}
+
 function parseSitemapUrlset(xml: string) {
   const items: SitemapUrlEntry[] = [];
 
@@ -1892,8 +1902,19 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
   const sitemapCandidates = robotsResponse.text
     ? parseRobotsSitemapUrls(robotsResponse.text, finalSiteUrl)
     : [];
-  const sitemapUrls = sitemapCandidates.length ? sitemapCandidates : [`${finalSiteUrl}/sitemap.xml`];
-  const sitemapCrawl = await crawlSitemaps(sitemapUrls);
+  const validSitemapCandidates = sitemapCandidates.filter(looksLikeSitemapUrl);
+  const fallbackSitemapUrl = `${finalSiteUrl}/sitemap.xml`;
+  const sitemapUrls = validSitemapCandidates.length ? validSitemapCandidates : [fallbackSitemapUrl];
+  let sitemapCrawl = await crawlSitemaps(sitemapUrls);
+  let sitemapSourceUrls = sitemapUrls;
+
+  if (!sitemapCrawl.entries.length && sitemapUrls[0] !== fallbackSitemapUrl) {
+    const fallbackCrawl = await crawlSitemaps([fallbackSitemapUrl]);
+    if (fallbackCrawl.entries.length) {
+      sitemapCrawl = fallbackCrawl;
+      sitemapSourceUrls = [fallbackSitemapUrl];
+    }
+  }
   const structureSummary = buildStructureSummary(sitemapCrawl.entries);
   const cms = detectCms(homeResponse.text, homeResponse.headers);
   const { analytics, scripts } = detectAnalytics(homeResponse.text);
@@ -1925,7 +1946,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     structure: {
       ...createEmptyFullResponse(inputUrl, finalSiteUrl, finalHomeUrl).structure,
       sitemap_found: sitemapCrawl.entries.length > 0,
-      sitemap_url: sitemapUrls[0] || null,
+      sitemap_url: sitemapSourceUrls[0] || null,
       total_urls: structureSummary.total,
       commercial: structureSummary.commercial,
       informational: structureSummary.informational,
@@ -1974,7 +1995,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
 
   const structure: SiteProfileResponse['structure'] = {
     sitemap_found: sitemapCrawl.entries.length > 0,
-    sitemap_url: sitemapUrls[0] || null,
+    sitemap_url: sitemapSourceUrls[0] || null,
     total_urls: sitemapCrawl.entries.length || null,
     commercial: sitemapCrawl.entries.length
       ? structureSummary.commercial

@@ -30,7 +30,15 @@ export async function POST(req: Request) {
       : `${engineUrl}?url=${encodeURIComponent(url)}`;
     const target = ua ? `${base}&ua=${encodeURIComponent(ua)}` : base;
 
-    const upstream = await fetch(target, { method: 'GET' });
+    const internalCompare = req.headers.get('x-compare-internal') === '1';
+    const upstream = await fetch(target, {
+      method: 'GET',
+      headers: internalCompare
+        ? {
+            'x-forwarded-for': 'compare-internal',
+          }
+        : undefined,
+    });
     const text = await upstream.text();
 
     try {

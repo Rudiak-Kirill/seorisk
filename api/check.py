@@ -14,6 +14,7 @@ RATE_PATH = Path('/tmp/seorisk_rate.json')
 DEBUG_LOG_PATH = Path('/tmp/seorisk_debug.log')
 RATE_LIMIT_PER_DAY = 1
 RATE_LIMIT_EXEMPT_HOSTS = {"zakupki44fz.ru"}
+RATE_LIMIT_EXEMPT_IPS = {"compare-internal"}
 MAX_HTML_BYTES = 400_000
 CONNECT_TIMEOUT = 10
 READ_TIMEOUT = 30
@@ -128,6 +129,8 @@ def save_rate_state(state: dict) -> None:
 
 
 def check_rate_limit(ip: str, url: str) -> tuple[bool, str]:
+    if ip in RATE_LIMIT_EXEMPT_IPS:
+        return True, "internal_exempt"
     try:
         host = urlparse(url).hostname or ""
         host = host.lower()

@@ -390,6 +390,37 @@ function compareProgressPercent(items: ProgressItem[]) {
   return Math.min(100, Math.round((done / items.length) * 100));
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  iteratee: (item: T, index: number) => Promise<R>
+) {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      if (currentIndex >= items.length) break;
+      try {
+        results[currentIndex] = {
+          status: 'fulfilled',
+          value: await iteratee(items[currentIndex], currentIndex),
+        };
+      } catch (error) {
+        results[currentIndex] = {
+          status: 'rejected',
+          reason: error,
+        };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, () => worker()));
+  return results;
+}
+
 export default function ComparePage() {
   const searchParams = useSearchParams();
   const [ownSite, setOwnSite] = useState('');
@@ -455,30 +486,28 @@ export default function ComparePage() {
     );
 
     try {
-      const sitePromises = targets.map(async (target, index) => {
-        const response = await fetch('/api/compare/site', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: target }),
+      const settledResults = await mapWithConcurrency(targets, 2, async (target, index) => {
+          const response = await fetch('/api/compare/site', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: target }),
+          });
+          const payload = (await response.json()) as CompareSiteResult | { ok: false; error?: string };
+
+          setProgress((current) =>
+            current.map((item, itemIndex) =>
+              itemIndex === index
+                ? { ...item, status: response.ok && 'ok' in payload && payload.ok ? 'done' : 'error' }
+                : item
+            )
+          );
+
+          if (!response.ok || !('ok' in payload) || payload.ok === false) {
+            throw new Error(('error' in payload && payload.error) || `Не удалось проанализировать ${target}`);
+          }
+
+          return payload;
         });
-        const payload = (await response.json()) as CompareSiteResult | { ok: false; error?: string };
-
-        setProgress((current) =>
-          current.map((item, itemIndex) =>
-            itemIndex === index
-              ? { ...item, status: response.ok && 'ok' in payload && payload.ok ? 'done' : 'error' }
-              : item
-          )
-        );
-
-        if (!response.ok || !('ok' in payload) || payload.ok === false) {
-          throw new Error(('error' in payload && payload.error) || `Не удалось проанализировать ${target}`);
-        }
-
-        return payload;
-      });
-
-      const settledResults = await Promise.allSettled(sitePromises);
       const resultItems = settledResults
         .filter((item): item is PromiseFulfilledResult<CompareSiteResult> => item.status === 'fulfilled')
         .map((item) => item.value);
@@ -609,11 +638,12 @@ export default function ComparePage() {
                 <table className="min-w-full divide-y divide-gray-200 text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left font-medium text-gray-500">Параметр</th>
+                      <th className="w-36 px-4 py-3 text-left font-medium text-gray-500">Раздел</th>
+                      <th className="w-64 px-4 py-3 text-left font-medium text-gray-500">Параметр</th>
                       {orderedSites.map((site, index) => (
-                        <th key={site.domain} className="px-4 py-3 text-left font-medium text-gray-500">
+                        <th key={site.domain} className="min-w-44 px-4 py-3 align-top text-left font-medium text-gray-500">
                           {index === 0 ? 'Мой сайт' : `Конк. ${index}`}
-                          <div className="mt-1 font-semibold text-gray-900">{site.domain}</div>
+                          <div className="mt-1 break-words font-semibold text-gray-900">{site.domain}</div>
                         </th>
                       ))}
                     </tr>

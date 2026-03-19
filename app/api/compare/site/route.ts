@@ -202,28 +202,35 @@ async function postJson<T>(origins: string[], path: string, body: unknown, timeo
 
   try {
     for (const origin of origins) {
-      try {
-        const response = await fetch(new URL(path, origin), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-compare-internal': '1',
-          },
-          body: JSON.stringify(body),
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-
-        const text = await response.text();
-        if (!text) continue;
-
+      for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          return JSON.parse(text) as T;
+          const response = await fetch(new URL(path, origin), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-compare-internal': '1',
+            },
+            body: JSON.stringify(body),
+            cache: 'no-store',
+            signal: controller.signal,
+          });
+
+          if (response.status === 429 && attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+
+          const text = await response.text();
+          if (!text) continue;
+
+          try {
+            return JSON.parse(text) as T;
+          } catch {
+            continue;
+          }
         } catch {
           continue;
         }
-      } catch {
-        continue;
       }
     }
 
