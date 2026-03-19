@@ -203,6 +203,9 @@ export default function SubdomainCheckPage() {
           Найдите поддомены через crt.sh и типовые паттерны, проверьте dev/test/stage, региональную
           структуру, robots.txt и риски дублей.
         </p>
+        <p className="mt-2 text-sm text-gray-500">
+          Статусы поддоменов ниже проверяются с российского IP на VDS в Москве.
+        </p>
 
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-3 md:flex-row">
@@ -351,7 +354,7 @@ export default function SubdomainCheckPage() {
                     <thead className="bg-gray-50 text-left text-gray-500">
                       <tr>
                         <th className="px-4 py-3 font-medium">Поддомен</th>
-                        <th className="px-4 py-3 font-medium">Статус</th>
+                        <th className="px-4 py-3 font-medium">РФ</th>
                         <th className="px-4 py-3 font-medium">Тип</th>
                         <th className="px-4 py-3 font-medium">Риск</th>
                       </tr>

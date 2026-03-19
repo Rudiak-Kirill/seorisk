@@ -84,6 +84,11 @@ type SiteProfileResponse = {
       facebook: boolean;
     };
   };
+  ru_access: {
+    status: Status;
+    value: string;
+    description: string;
+  };
   subdomains: {
     found: number | null;
     checked: number | null;
@@ -413,7 +418,7 @@ export default function SiteProfilePage() {
 
               <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                 <h2 className="text-base font-semibold text-gray-900">Технический профиль</h2>
-                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <div>
                     <div className="text-xs uppercase tracking-wide text-gray-500">CMS</div>
                     <div className="mt-1 text-sm font-medium text-gray-900">{data.technical.cms}</div>
@@ -433,6 +438,20 @@ export default function SiteProfilePage() {
                       {data.technical.analytics.vk ? '✅' : '⚠️'} · Facebook{' '}
                       {data.technical.analytics.facebook ? '✅' : '⚠️'}
                     </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-gray-500">Доступность из РФ</div>
+                    <div className={`mt-1 text-sm font-medium ${statusClass(data.ru_access.status)}`}>
+                      {data.ru_access.value}
+                    </div>
+                    <div className="mt-1 text-sm text-gray-600">{data.ru_access.description}</div>
+                    <Link
+                      href={`/tools/ru-access-check?site=${encodeURIComponent(data.site_url)}`}
+                      className="mt-2 inline-flex items-center text-sm font-medium text-orange-600 hover:text-orange-700"
+                    >
+                      Подробный анализ
+                      <ArrowRight className="ml-1 h-4 w-4" />
+                    </Link>
                   </div>
                 </div>
               </div>

@@ -18,6 +18,7 @@ const navLinks = [
   { href: '/tools/speed-check', label: 'Speed Check' },
   { href: '/tools/content-check', label: 'Content Check' },
   { href: '/tools/site-profile', label: 'Site Profile' },
+  { href: '/tools/ru-access-check', label: 'RU Access Check' },
   { href: '/tools/subdomain-check', label: 'Subdomain Check' },
   { href: '/tools/compare', label: 'Compare' },
 ];

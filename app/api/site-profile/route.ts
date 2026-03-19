@@ -2,6 +2,7 @@ import { createConnection } from 'node:net';
 import { NextResponse } from 'next/server';
 import { decodeFetchedText, looksLikeSitemapResource } from '@/lib/sitemap-xml';
 import { getSubdomainSummary } from '@/lib/subdomain-check';
+import { runRuAccessCheck } from '@/lib/ru-access-check';
 
 export const runtime = 'nodejs';
 
@@ -185,6 +186,11 @@ type SiteProfileResponse = {
       facebook: boolean;
     };
   };
+  ru_access: {
+    status: Status;
+    value: string;
+    description: string;
+  };
   subdomains: {
     found: number | null;
     checked: number | null;
@@ -350,6 +356,11 @@ function createEmptyFullResponse(inputUrl: string, siteUrl: string, finalUrl: st
         vk: false,
         facebook: false,
       },
+    },
+    ru_access: {
+      status: 'warn',
+      value: 'Не удалось определить',
+      description: 'Проверка доступности из РФ ещё не выполнена.',
     },
     subdomains: {
       found: null,
@@ -1929,6 +1940,7 @@ function buildFallbackSummary(input: {
   structure: SiteProfileResponse['structure'];
   commerce: SiteProfileResponse['commerce'];
   technical: SiteProfileResponse['technical'];
+  ru_access: SiteProfileResponse['ru_access'];
 }) {
   const sentences: string[] = [];
   const firstSentenceParts = [
@@ -1971,6 +1983,7 @@ async function summarizeProfileWithLlm(input: {
   structure: SiteProfileResponse['structure'];
   commerce: SiteProfileResponse['commerce'];
   technical: SiteProfileResponse['technical'];
+  ru_access: SiteProfileResponse['ru_access'];
   subdomains: SiteProfileResponse['subdomains'];
   whois: {
     ageYears: number | null;
@@ -2267,6 +2280,22 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     llms_txt: llmsTxtStatus,
     analytics,
   };
+  const ruAccessResult = await runRuAccessCheck(finalSiteUrl, { includeExternal: false });
+  const ruAccess: SiteProfileResponse['ru_access'] = {
+    status:
+      ruAccessResult.verdict.status === 'ok'
+        ? 'ok'
+        : ruAccessResult.verdict.status === 'fail'
+          ? 'fail'
+          : 'warn',
+    value:
+      ruAccessResult.verdict.status === 'ok'
+        ? 'Доступен из РФ'
+        : ruAccessResult.verdict.status === 'fail'
+          ? 'Недоступен из РФ'
+          : 'Требует проверки',
+    description: ruAccessResult.verdict.summary,
+  };
 
   const subdomains = await getSubdomainSummary(finalHostname).catch(() => ({
     found: null,
@@ -2280,6 +2309,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     structure,
     commerce,
     technical,
+    ru_access: ruAccess,
     subdomains,
     whois: {
       ageYears: whois.ageYears,
@@ -2307,6 +2337,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     structure,
     commerce,
     technical,
+    ru_access: ruAccess,
     subdomains,
     details: {
       menu_pages: menuLinks.slice(0, 6),

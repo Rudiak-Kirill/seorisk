@@ -57,6 +57,11 @@ const tools = [
     href: '/tools/site-profile',
   },
   {
+    title: 'RU Access Check',
+    description: 'Проверка реестра РКН и фактической доступности сайта из РФ',
+    href: '/tools/ru-access-check',
+  },
+  {
     title: 'Subdomain Check',
     description: 'Поддомены, dev/test/stage, региональная структура и SEO-риски',
     href: '/tools/subdomain-check',

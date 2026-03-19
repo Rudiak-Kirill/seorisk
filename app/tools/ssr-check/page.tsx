@@ -409,6 +409,9 @@ export default function SsrCheckPage() {
   const filteredCards = groupedCards.filter((card) =>
     severityFilter === 'all' ? true : card.severity === severityFilter,
   );
+  const showRuAccessHint =
+    !!data &&
+    [data.checks.google.http_code, data.checks.yandex.http_code].some((code) => code === 504);
 
   const onCheck = async () => {
     if (!url.trim()) {
@@ -581,6 +584,20 @@ export default function SsrCheckPage() {
                     ))}
                   </section>
                 </>
+              )}
+
+              {showRuAccessHint && (
+                <section className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-800">
+                  <div className="text-base font-semibold">Проверьте доступность из РФ</div>
+                  <p className="mt-2 text-sm leading-6">
+                    Боты получают 504. Это похоже на проблему доступа из России, а не только на SSR.
+                  </p>
+                  <div className="mt-3">
+                    <Button asChild variant="outline" className="rounded-full border-amber-300 bg-white text-amber-800 hover:bg-amber-100">
+                      <Link href={`/tools/ru-access-check?url=${encodeURIComponent(data.url)}`}>Открыть RU Access Check</Link>
+                    </Button>
+                  </div>
+                </section>
               )}
 
               <div className="mt-6">
