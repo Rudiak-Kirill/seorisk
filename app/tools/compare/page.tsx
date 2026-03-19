@@ -612,6 +612,7 @@ export default function ComparePage() {
   const [competitors, setCompetitors] = useState(['', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [sites, setSites] = useState<CompareSiteResult[]>([]);
   const [insights, setInsights] = useState<CompareInsights | null>(null);
@@ -774,6 +775,7 @@ export default function ComparePage() {
 
     setLoading(true);
     setError(null);
+    setInsightsError(null);
     setSites([]);
     setInsights(null);
     setProgress(
@@ -826,6 +828,8 @@ export default function ComparePage() {
 
       if (insightsResponse.ok && 'ok' in insightsPayload && insightsPayload.ok) {
         setInsights(insightsPayload);
+      } else {
+        setInsightsError(('error' in insightsPayload && insightsPayload.error) || 'Не удалось построить вердикты сравнения');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось построить сравнение');
@@ -981,6 +985,12 @@ export default function ComparePage() {
                   </tbody>
                 </table>
               </div>
+
+              {insightsError ? (
+                <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {insightsError}
+                </div>
+              ) : null}
 
               {insights ? (
                 <div className="mt-8 grid gap-6 xl:grid-cols-3">

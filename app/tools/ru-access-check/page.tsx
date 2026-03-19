@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 
 type VerdictStatus = 'ok' | 'warn' | 'fail';
 type RegistryStatus = 'blocked' | 'not_blocked' | 'unknown';
-type AccessStatus = 'accessible' | 'accessible_with_error' | 'timeout' | 'refused' | 'error' | 'unknown';
+type AccessStatus = 'accessible' | 'http_error' | 'timeout' | 'refused' | 'error' | 'unknown';
 
 type RuAccessResponse = {
   ok: boolean;
@@ -85,7 +85,7 @@ function verdictClass(status: VerdictStatus) {
 
 function statusLabel(status: AccessStatus, httpStatus: number | null) {
   if (status === 'accessible') return httpStatus ? `Открывается (${httpStatus})` : 'Открывается';
-  if (status === 'accessible_with_error') return httpStatus ? `Открывается с ошибкой (${httpStatus})` : 'Открывается с ошибкой';
+  if (status === 'http_error') return httpStatus ? `Не открывается (${httpStatus})` : 'Не открывается';
   if (status === 'timeout') return 'Не открывается (таймаут)';
   if (status === 'refused') return 'Не открывается (connection refused)';
   if (status === 'error') return 'Не открывается (ошибка)';
@@ -94,8 +94,7 @@ function statusLabel(status: AccessStatus, httpStatus: number | null) {
 
 function statusTone(status: AccessStatus | RegistryStatus) {
   if (status === 'accessible' || status === 'not_blocked') return 'text-green-600';
-  if (status === 'blocked' || status === 'timeout' || status === 'refused' || status === 'error') return 'text-red-600';
-  if (status === 'accessible_with_error') return 'text-amber-600';
+  if (status === 'blocked' || status === 'http_error' || status === 'timeout' || status === 'refused' || status === 'error') return 'text-red-600';
   return 'text-gray-500';
 }
 

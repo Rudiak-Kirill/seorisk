@@ -86,6 +86,81 @@ type InsightCandidate = {
   item: InsightItem;
 };
 
+
+function normalizeBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function normalizeNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function normalizeSiteItem(raw: unknown): CompareSiteItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const source = raw as Record<string, unknown>;
+  const metrics = (source.metrics && typeof source.metrics === 'object' ? source.metrics : {}) as Record<string, unknown>;
+  const profile = (metrics.profile && typeof metrics.profile === 'object' ? metrics.profile : {}) as Record<string, unknown>;
+  const structure = (metrics.structure && typeof metrics.structure === 'object' ? metrics.structure : {}) as Record<string, unknown>;
+  const speed = (metrics.speed && typeof metrics.speed === 'object' ? metrics.speed : {}) as Record<string, unknown>;
+  const bots = (metrics.bots && typeof metrics.bots === 'object' ? metrics.bots : {}) as Record<string, unknown>;
+  const indexability = (metrics.indexability && typeof metrics.indexability === 'object' ? metrics.indexability : {}) as Record<string, unknown>;
+  const ai = (metrics.ai && typeof metrics.ai === 'object' ? metrics.ai : {}) as Record<string, unknown>;
+  const subdomains = (metrics.subdomains && typeof metrics.subdomains === 'object' ? metrics.subdomains : {}) as Record<string, unknown>;
+
+  return {
+    site_url: normalizeString(source.site_url) || '',
+    domain: normalizeString(source.domain) || '',
+    metrics: {
+      profile: {
+        type: normalizeString(profile.type),
+        age_years: normalizeNumber(profile.age_years),
+        age_label: normalizeString(profile.age_label),
+        cms: normalizeString(profile.cms),
+        yandex_iks: normalizeNumber(profile.yandex_iks),
+      },
+      structure: {
+        sitemap_total: normalizeNumber(structure.sitemap_total),
+        commercial_count: normalizeNumber(structure.commercial_count),
+        commercial_percent: normalizeNumber(structure.commercial_percent),
+        informational_count: normalizeNumber(structure.informational_count),
+        informational_percent: normalizeNumber(structure.informational_percent),
+        commercial_signals_found: normalizeNumber(structure.commercial_signals_found),
+        commercial_signals_total: normalizeNumber(structure.commercial_signals_total),
+      },
+      speed: {
+        ttfb_ms: normalizeNumber(speed.ttfb_ms),
+        mobile_score: normalizeNumber(speed.mobile_score),
+        desktop_score: normalizeNumber(speed.desktop_score),
+      },
+      bots: {
+        googlebot_ok: normalizeBoolean(bots.googlebot_ok),
+        yandexbot_ok: normalizeBoolean(bots.yandexbot_ok),
+      },
+      indexability: {
+        canonical_ok: normalizeBoolean(indexability.canonical_ok),
+        robots_ok: normalizeBoolean(indexability.robots_ok),
+      },
+      ai: {
+        gptbot_ok: normalizeBoolean(ai.gptbot_ok),
+        llms_txt: normalizeBoolean(ai.llms_txt),
+        schema_critical: normalizeBoolean(ai.schema_critical),
+        faq_found: normalizeBoolean(ai.faq_found),
+      },
+      subdomains: {
+        found: normalizeNumber(subdomains.found),
+        checked: normalizeNumber(subdomains.checked),
+        regional: normalizeNumber(subdomains.regional),
+        open_dev_test: normalizeBoolean(subdomains.open_dev_test),
+      },
+    },
+  };
+}
+
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   return new Intl.NumberFormat('ru-RU').format(value);
@@ -500,8 +575,8 @@ function buildDeterministicInsights(sites: CompareSiteItem[]): Omit<CompareInsig
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { sites?: CompareSiteItem[] };
-    const sites = Array.isArray(body.sites) ? body.sites : [];
+    const body = (await req.json()) as { sites?: unknown[] };
+    const sites = Array.isArray(body.sites) ? body.sites.map(normalizeSiteItem).filter((item): item is CompareSiteItem => Boolean(item)) : [];
 
     if (sites.length < 2) {
       return NextResponse.json({ ok: false, error: 'Нужно минимум два сайта для сравнения' }, { status: 400 });

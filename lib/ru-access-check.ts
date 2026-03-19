@@ -16,7 +16,7 @@ type CachedValue<T> = {
 };
 
 type RegistryStatus = 'blocked' | 'not_blocked' | 'unknown';
-type AccessStatus = 'accessible' | 'accessible_with_error' | 'timeout' | 'refused' | 'error' | 'unknown';
+type AccessStatus = 'accessible' | 'http_error' | 'timeout' | 'refused' | 'error' | 'unknown';
 type VerdictKey =
   | 'ok'
   | 'blocked_officially'
@@ -102,6 +102,26 @@ function normalizeInput(value: string) {
   };
 }
 
+function normalizeRegistryDomain(domain: string) {
+  return domain.replace(/^www\./i, '').toLowerCase();
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function stripHtml(value: string) {
+  return decodeHtmlEntities(value.replace(/<[^>]+>/g, ' '));
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -135,11 +155,69 @@ function describeFetchError(error: unknown) {
 
 function normalizeProbeStatus(status: number | null, error: string | null): AccessStatus {
   if (status !== null && status >= 200 && status <= 399) return 'accessible';
-  if (status !== null && status >= 400 && status <= 599) return 'accessible_with_error';
+  if (status !== null && status >= 400 && status <= 599) return 'http_error';
   if (error === 'timeout') return 'timeout';
   if (/connection refused/i.test(error || '')) return 'refused';
   if (error) return 'error';
   return 'unknown';
+}
+
+async function fetchProbeResponse(
+  targetUrl: string,
+  method: 'HEAD' | 'GET',
+  timeoutMs: number,
+  maxRedirects = 5
+) {
+  let currentUrl = targetUrl;
+  let firstRedirectTarget: string | null = null;
+  let lastResponse: Response | null = null;
+
+  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    const response = await fetchWithTimeout(
+      currentUrl,
+      {
+        method,
+        redirect: 'manual',
+        headers:
+          method === 'HEAD'
+            ? {
+                'User-Agent': BROWSER_UA,
+                Accept: '*/*',
+              }
+            : {
+                'User-Agent': BROWSER_UA,
+                Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              },
+      },
+      timeoutMs
+    );
+
+    lastResponse = response;
+    const location = response.headers.get('location');
+    const isRedirect = response.status >= 300 && response.status <= 399 && location;
+    if (!isRedirect) {
+      return {
+        response,
+        finalUrl: response.url || currentUrl,
+        redirectTarget: firstRedirectTarget,
+      };
+    }
+
+    const nextUrl = new URL(location, currentUrl).toString();
+    if (!firstRedirectTarget) {
+      firstRedirectTarget = nextUrl;
+    }
+    if (nextUrl === currentUrl) {
+      break;
+    }
+    currentUrl = nextUrl;
+  }
+
+  return {
+    response: lastResponse,
+    finalUrl: currentUrl,
+    redirectTarget: firstRedirectTarget,
+  };
 }
 
 async function probeFromRussia(targetUrl: string): Promise<AccessProbeResult> {
@@ -154,39 +232,20 @@ async function probeFromRussia(targetUrl: string): Promise<AccessProbeResult> {
   let headers = new Headers();
 
   try {
-    let response = await fetchWithTimeout(
-      targetUrl,
-      {
-        method: 'HEAD',
-        redirect: 'manual',
-        headers: {
-          'User-Agent': BROWSER_UA,
-          Accept: '*/*',
-        },
-      },
-      RU_TIMEOUT_MS
-    );
+    let probe = await fetchProbeResponse(targetUrl, 'HEAD', RU_TIMEOUT_MS);
+    let response = probe.response;
 
-    if (response.status === 405) {
-      response = await fetchWithTimeout(
-        targetUrl,
-        {
-          method: 'GET',
-          redirect: 'manual',
-          headers: {
-            'User-Agent': BROWSER_UA,
-            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          },
-        },
-        RU_TIMEOUT_MS
-      );
+    if (!response || [400, 403, 405].includes(response.status)) {
+      probe = await fetchProbeResponse(targetUrl, 'GET', RU_TIMEOUT_MS);
+      response = probe.response;
     }
 
-    httpStatus = response.status;
-    finalUrl = response.url || targetUrl;
-    headers = response.headers;
-    const location = response.headers.get('location');
-    redirectTarget = location ? new URL(location, targetUrl).toString() : null;
+    if (response) {
+      httpStatus = response.status;
+      finalUrl = probe.finalUrl;
+      headers = response.headers;
+      redirectTarget = probe.redirectTarget;
+    }
   } catch (caught) {
     error = describeFetchError(caught);
   }
@@ -195,7 +254,7 @@ async function probeFromRussia(targetUrl: string): Promise<AccessProbeResult> {
     status: normalizeProbeStatus(httpStatus, error),
     reachable:
       httpStatus !== null
-        ? httpStatus >= 200 && httpStatus <= 599
+        ? httpStatus >= 200 && httpStatus <= 399
         : error === null
           ? null
           : false,
@@ -231,7 +290,7 @@ function parseCheckHostResult(payload: unknown, domain: string): AccessProbeResu
 
   return {
     status: normalizeProbeStatus(httpStatus, error),
-    reachable: httpStatus !== null ? httpStatus >= 200 && httpStatus <= 599 : false,
+    reachable: httpStatus !== null ? httpStatus >= 200 && httpStatus <= 399 : false,
     http_status: httpStatus,
     final_url: `https://${domain}`,
     redirect_target: null,
@@ -345,6 +404,98 @@ function parseRegistryPayload(payload: unknown): RegistryResult | null {
   };
 }
 
+function registryResourceMatches(targetDomain: string, resource: string) {
+  const target = normalizeRegistryDomain(targetDomain);
+  const normalized = normalizeRegistryDomain(resource.replace(/^\*\./, ''));
+
+  if (!normalized) return false;
+  if (target === normalized) return true;
+  if (resource.startsWith('*.') && target.endsWith(`.${normalized}`)) return true;
+  return false;
+}
+
+function parseRegistryPage(html: string, targetDomain: string): RegistryResult | null {
+  const blockedResourceRaw =
+    html.match(/<span>\s*Заблокированный ресурс:\s*<\/span>\s*<p>([\s\S]*?)<\/p>/i)?.[1] ||
+    html.match(/<title>([^<]+):\s*реестр сайтов Роскомнадзора<\/title>/i)?.[1] ||
+    null;
+
+  const blockedResource = blockedResourceRaw ? stripHtml(blockedResourceRaw) : null;
+  if (!blockedResource || !registryResourceMatches(targetDomain, blockedResource)) {
+    return null;
+  }
+
+  const reason =
+    stripHtml(html.match(/<span>\s*Орган принявший решение:\s*<\/span>\s*<p>([\s\S]*?)<\/p>/i)?.[1] || '') ||
+    null;
+  const date =
+    stripHtml(html.match(/<span>\s*Дата блокировки:\s*<\/span>\s*<p>([\s\S]*?)<\/p>/i)?.[1] || '') ||
+    stripHtml(html.match(/<span>\s*Дата принятия решения:\s*<\/span>\s*<p>([\s\S]*?)<\/p>/i)?.[1] || '') ||
+    null;
+
+  return {
+    status: 'blocked',
+    blocked: true,
+    reason,
+    date,
+    source: 'rknweb:search',
+    error: null,
+  };
+}
+
+async function fetchRegistryViaSearch(domain: string): Promise<RegistryResult | null> {
+  const queryDomains = Array.from(new Set([domain, normalizeRegistryDomain(domain)]));
+
+  for (const queryDomain of queryDomains) {
+    try {
+      const searchResponse = await fetchWithTimeout(
+        `https://rknweb.ru/?s=${encodeURIComponent(queryDomain)}`,
+        {
+          method: 'GET',
+          headers: {
+            Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+            'User-Agent': BROWSER_UA,
+          },
+        },
+        REGISTRY_TIMEOUT_MS
+      );
+
+      if (!searchResponse.ok) continue;
+      const searchHtml = await searchResponse.text();
+      const blockedLinks = Array.from(
+        new Set(Array.from(searchHtml.matchAll(/https:\/\/rknweb\.ru\/blocked\/\d+\//gi)).map((item) => item[0]))
+      ).slice(0, 10);
+
+      for (const blockedUrl of blockedLinks) {
+        try {
+          const blockedResponse = await fetchWithTimeout(
+            blockedUrl,
+            {
+              method: 'GET',
+              headers: {
+                Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+                'User-Agent': BROWSER_UA,
+              },
+            },
+            REGISTRY_TIMEOUT_MS
+          );
+
+          if (!blockedResponse.ok) continue;
+          const blockedHtml = await blockedResponse.text();
+          const parsed = parseRegistryPage(blockedHtml, domain);
+          if (parsed) return parsed;
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 async function fetchRegistry(domain: string): Promise<RegistryResult> {
   const cached = getCached(registryCache, domain);
   if (cached) return cached;
@@ -378,6 +529,11 @@ async function fetchRegistry(domain: string): Promise<RegistryResult> {
     } catch {
       continue;
     }
+  }
+
+  const searchFallback = await fetchRegistryViaSearch(domain);
+  if (searchFallback) {
+    return setCached(registryCache, domain, REGISTRY_CACHE_TTL_MS, searchFallback);
   }
 
   return setCached(registryCache, domain, REGISTRY_CACHE_TTL_MS, {
@@ -493,7 +649,7 @@ async function detectHosting(domain: string, probe: AccessProbeResult): Promise<
 function buildRecommendations(registry: RegistryResult, ruAccess: AccessProbeResult, hosting: HostingResult) {
   const items: RuAccessCheckResult['recommendations'] = [];
 
-  const ruUnavailable = ['timeout', 'refused', 'error'].includes(ruAccess.status);
+  const ruUnavailable = ['http_error', 'timeout', 'refused', 'error'].includes(ruAccess.status);
 
   if (registry.status === 'blocked' && ruUnavailable) {
     items.push({
@@ -531,7 +687,7 @@ function buildRecommendations(registry: RegistryResult, ruAccess: AccessProbeRes
 }
 
 function buildVerdict(registry: RegistryResult, ruAccess: AccessProbeResult, hosting: HostingResult) {
-  const ruUnavailable = ['timeout', 'refused', 'error'].includes(ruAccess.status);
+  const ruUnavailable = ['http_error', 'timeout', 'refused', 'error'].includes(ruAccess.status);
 
   if (registry.status === 'not_blocked' && !ruUnavailable) {
     return {
