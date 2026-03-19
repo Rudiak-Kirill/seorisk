@@ -1,5 +1,6 @@
 import { createConnection } from 'node:net';
 import { NextResponse } from 'next/server';
+import { decodeFetchedText, looksLikeSitemapResource } from '@/lib/sitemap-xml';
 import { getSubdomainSummary } from '@/lib/subdomain-check';
 
 export const runtime = 'nodejs';
@@ -454,6 +455,48 @@ async function fetchTextOnce(
   }
 }
 
+async function fetchSitemapTextOnce(
+  url: string,
+  timeoutMs = FETCH_TIMEOUT_MS,
+  userAgent = BROWSER_UA
+): Promise<TextFetchResult> {
+  try {
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'GET',
+        redirect: 'follow',
+        headers: {
+          'User-Agent': userAgent,
+          Accept: 'application/xml,text/xml,application/gzip,application/x-gzip,text/plain;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        },
+      },
+      timeoutMs
+    );
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      text: decodeFetchedText(buffer, response.url || url, response.headers),
+      finalUrl: response.url || url,
+      headers: response.headers,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      text: '',
+      finalUrl: url,
+      headers: new Headers(),
+      error: describeFetchError(error),
+    };
+  }
+}
+
 function getFetchCandidates(url: string) {
   if (!/^https:\/\//i.test(url)) return [url];
   return [url, url.replace(/^https:\/\//i, 'http://')];
@@ -472,6 +515,43 @@ async function fetchText(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Tex
     for (let index = 0; index < attemptPlan.length; index += 1) {
       const attempt = attemptPlan[index];
       const result = await fetchTextOnce(candidate, attempt.timeoutMs, attempt.userAgent);
+      if (result.text || result.ok || result.status >= 400) {
+        return result;
+      }
+
+      lastResult = result;
+
+      if (index < attemptPlan.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+  }
+
+  return (
+    lastResult || {
+      ok: false,
+      status: 0,
+      text: '',
+      finalUrl: url,
+      headers: new Headers(),
+      error: 'fetch_error',
+    }
+  );
+}
+
+async function fetchSitemapText(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<TextFetchResult> {
+  const candidates = getFetchCandidates(url);
+  const attemptPlan = [
+    { timeoutMs, userAgent: BROWSER_UA },
+    { timeoutMs: FETCH_RETRY_TIMEOUT_MS, userAgent: SECONDARY_BROWSER_UA },
+  ];
+
+  let lastResult: TextFetchResult | null = null;
+
+  for (const candidate of candidates) {
+    for (let index = 0; index < attemptPlan.length; index += 1) {
+      const attempt = attemptPlan[index];
+      const result = await fetchSitemapTextOnce(candidate, attempt.timeoutMs, attempt.userAgent);
       if (result.text || result.ok || result.status >= 400) {
         return result;
       }
@@ -759,13 +839,7 @@ function parseRobotsSitemapUrls(text: string, siteUrl: string) {
 }
 
 function looksLikeSitemapUrl(value: string) {
-  try {
-    const parsed = new URL(value);
-    const pathname = parsed.pathname.toLowerCase();
-    return pathname.endsWith('.xml') || pathname.includes('sitemap');
-  } catch {
-    return false;
-  }
+  return looksLikeSitemapResource(value);
 }
 
 function parseSitemapUrlset(xml: string) {
@@ -811,7 +885,7 @@ async function crawlSitemaps(initialUrls: string[]) {
     if (!sitemapUrl || visited.has(sitemapUrl)) continue;
     visited.add(sitemapUrl);
 
-    const response = await fetchText(sitemapUrl);
+    const response = await fetchSitemapText(sitemapUrl);
     if (!response.ok || !response.text) continue;
 
     const xml = response.text;
@@ -2060,16 +2134,16 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
     ? parseRobotsSitemapUrls(robotsResponse.text, finalSiteUrl)
     : [];
   const validSitemapCandidates = sitemapCandidates.filter(looksLikeSitemapUrl);
-  const fallbackSitemapUrl = `${finalSiteUrl}/sitemap.xml`;
-  const sitemapUrls = validSitemapCandidates.length ? validSitemapCandidates : [fallbackSitemapUrl];
+  const fallbackSitemapUrls = [`${finalSiteUrl}/sitemap.xml`, `${finalSiteUrl}/sitemap.xml.gz`];
+  const sitemapUrls = validSitemapCandidates.length ? validSitemapCandidates : fallbackSitemapUrls;
   let sitemapCrawl = await crawlSitemaps(sitemapUrls);
   let sitemapSourceUrls = sitemapUrls;
 
-  if (!sitemapCrawl.entries.length && sitemapUrls[0] !== fallbackSitemapUrl) {
-    const fallbackCrawl = await crawlSitemaps([fallbackSitemapUrl]);
+  if (!sitemapCrawl.entries.length && sitemapUrls.join('|') !== fallbackSitemapUrls.join('|')) {
+    const fallbackCrawl = await crawlSitemaps(fallbackSitemapUrls);
     if (fallbackCrawl.entries.length) {
       sitemapCrawl = fallbackCrawl;
-      sitemapSourceUrls = [fallbackSitemapUrl];
+      sitemapSourceUrls = fallbackSitemapUrls;
     }
   }
   const structureSummary = buildStructureSummary(sitemapCrawl.entries);

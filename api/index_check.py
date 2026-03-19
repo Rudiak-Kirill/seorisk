@@ -1,5 +1,6 @@
 import json
 import time
+import gzip
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler
@@ -18,6 +19,8 @@ BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+GZIP_MAGIC = b"\x1f\x8b"
 
 
 def utc_now_iso() -> str:
@@ -109,6 +112,31 @@ class RecordingRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def decode_response_body(body: bytes, final_url: str, headers: dict[str, str]) -> str:
+    if not body:
+        return ""
+
+    content_type = (headers.get("content-type") or "").lower()
+    content_encoding = (headers.get("content-encoding") or "").lower()
+    should_gunzip = (
+        final_url.lower().endswith(".xml.gz")
+        or "application/gzip" in content_type
+        or "application/x-gzip" in content_type
+        or "gzip" in content_type
+        or "gzip" in content_encoding
+        or body.startswith(GZIP_MAGIC)
+    )
+
+    payload = body
+    if should_gunzip:
+        try:
+            payload = gzip.decompress(body)
+        except Exception:
+            payload = body
+
+    return payload.decode("utf-8", errors="replace")
+
+
 def fetch_url(url: str, max_bytes: int = MAX_TEXT_BYTES) -> dict:
     redirect_handler = RecordingRedirectHandler()
     opener = build_opener(redirect_handler)
@@ -165,7 +193,7 @@ def fetch_url(url: str, max_bytes: int = MAX_TEXT_BYTES) -> dict:
         "final_url": final_url,
         "redirect_chain": redirect_handler.chain,
         "headers": headers,
-        "body_text": body.decode("utf-8", errors="replace"),
+        "body_text": decode_response_body(body, final_url, headers),
         "error": None,
         "elapsed_ms": int((time.time() - started) * 1000),
     }
@@ -367,6 +395,7 @@ def check_sitemap(site_root: str, final_url: str, robots_sitemaps: list[str]) ->
             candidates.append(("robots.txt", sitemap_url))
     else:
         candidates.append(("standard", urljoin(site_root, "/sitemap.xml")))
+        candidates.append(("standard", urljoin(site_root, "/sitemap.xml.gz")))
 
     fallback = {
         "sitemap_found": False,

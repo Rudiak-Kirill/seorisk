@@ -1,3 +1,4 @@
+import { decodeFetchedText, looksLikeSitemapResource } from '@/lib/sitemap-xml';
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
@@ -308,6 +309,43 @@ async function fetchText(url: string, timeoutMs: number, headers?: HeadersInit):
   }
 }
 
+
+async function fetchSitemapText(url: string, timeoutMs: number): Promise<FetchTextResult> {
+  try {
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'GET',
+        redirect: 'follow',
+        headers: {
+          'User-Agent': BROWSER_UA,
+          Accept: 'application/xml,text/xml,application/gzip,application/x-gzip,text/plain;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+        },
+      },
+      timeoutMs
+    );
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      text: decodeFetchedText(buffer, response.url || url, response.headers),
+      finalUrl: response.url || url,
+      headers: response.headers,
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      text: '',
+      finalUrl: url,
+      headers: new Headers(),
+    };
+  }
+}
+
 async function probeHost(host: string): Promise<ProbeResult> {
   for (const protocol of ['https', 'http'] as const) {
     const url = `${protocol}://${host}`;
@@ -474,7 +512,7 @@ function parseRobotsSitemaps(text: string, origin: string) {
     .map((match) => match[1]?.trim())
     .filter(Boolean) as string[];
 
-  return matches.length ? matches : [`${origin}/sitemap.xml`];
+  return matches.length ? matches : [`${origin}/sitemap.xml`, `${origin}/sitemap.xml.gz`];
 }
 
 function detectCategory(host: string, domain: string, title: string | null) {
@@ -854,7 +892,7 @@ async function scanRootSitemapForHosts(domain: string, hosts: string[]) {
     Accept: 'text/plain,*/*;q=0.8',
   });
 
-  const queue = robots.text ? parseRobotsSitemaps(robots.text, origin) : [`${origin}/sitemap.xml`];
+  const queue = robots.text ? parseRobotsSitemaps(robots.text, origin) : [`${origin}/sitemap.xml`, `${origin}/sitemap.xml.gz`];
   const seen = new Set<string>();
   const foundHosts = new Set<string>();
   const hostNeedles = hosts.map((host) => host.toLowerCase());
@@ -864,9 +902,7 @@ async function scanRootSitemapForHosts(domain: string, hosts: string[]) {
     if (!current || seen.has(current)) continue;
     seen.add(current);
 
-    const response = await fetchText(current, ROOT_SITEMAP_TIMEOUT_MS, {
-      Accept: 'application/xml,text/xml;q=0.9,*/*;q=0.8',
-    });
+    const response = await fetchSitemapText(current, ROOT_SITEMAP_TIMEOUT_MS);
     if (!response.text) continue;
 
     const xmlLower = response.text.toLowerCase();
@@ -880,7 +916,7 @@ async function scanRootSitemapForHosts(domain: string, hosts: string[]) {
     for (const match of response.text.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi)) {
       const loc = match[1]?.trim();
       if (!loc) continue;
-      if (/\.xml(\?.*)?$/i.test(loc)) {
+      if (looksLikeSitemapResource(loc)) {
         queue.push(loc);
       }
     }

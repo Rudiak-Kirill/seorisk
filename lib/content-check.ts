@@ -1,4 +1,5 @@
 ﻿import { URL } from 'node:url';
+import { decodeFetchedText, looksLikeSitemapResource } from '@/lib/sitemap-xml';
 
 export type ContentPageType =
   | 'product'
@@ -1188,15 +1189,23 @@ function buildEmptyResponse(inputUrl: string, normalizedUrl: string, finalUrl: s
 }
 async function fetchSitemapText(url: string) {
   try {
-    const response = await fetch(url, { cache: 'no-store', headers: { 'User-Agent': BROWSER_UA } });
-    return response.ok ? await response.text() : '';
+    const response = await fetch(url, {
+      cache: 'no-store',
+      headers: {
+        'User-Agent': BROWSER_UA,
+        Accept: 'application/xml,text/xml,application/gzip,application/x-gzip,text/plain;q=0.9,*/*;q=0.8',
+      },
+    });
+    if (!response.ok) return '';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return decodeFetchedText(buffer, response.url || url, response.headers);
   } catch {
     return '';
   }
 }
 
 function looksLikeSitemapUrl(url: string) {
-  return /sitemap/i.test(url) || /\.xml(\.gz)?$/i.test(url);
+  return looksLikeSitemapResource(url);
 }
 
 function parseSitemapLocs(xml: string) {
@@ -1207,7 +1216,8 @@ async function getRepresentativeUrl(siteUrl: string, preferredKind: 'default' | 
   const origin = new URL(siteUrl).origin;
   const robots = await fetchSitemapText(`${origin}/robots.txt`);
   const sitemapCandidates = Array.from(robots.matchAll(/^\s*Sitemap:\s*(.+)$/gim)).map((item) => item[1].trim()).filter(looksLikeSitemapUrl);
-  const queue = (sitemapCandidates.length ? sitemapCandidates : [`${origin}/sitemap.xml`]).slice(0, REPRESENTATIVE_MAX_SITEMAP_FILES);
+  const fallbackSitemaps = [`${origin}/sitemap.xml`, `${origin}/sitemap.xml.gz`];
+  const queue = (sitemapCandidates.length ? sitemapCandidates : fallbackSitemaps).slice(0, REPRESENTATIVE_MAX_SITEMAP_FILES);
   const pageUrls: string[] = [];
   const visited = new Set<string>();
 
