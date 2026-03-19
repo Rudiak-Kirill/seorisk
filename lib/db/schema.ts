@@ -1,4 +1,6 @@
 import {
+  boolean,
+  date,
   pgTable,
   serial,
   varchar,
@@ -6,6 +8,7 @@ import {
   timestamp,
   integer,
   jsonb,
+  uuid,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -108,6 +111,71 @@ export const indexChecks = pgTable('index_checks', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+export const seoResearch = pgTable('seo_research', {
+  id: uuid('id').primaryKey(),
+  url: text('url').notNull(),
+  title: text('title'),
+  h1: text('h1'),
+  description: text('description'),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const clusters = pgTable('clusters', {
+  id: uuid('id').primaryKey(),
+  researchId: uuid('research_id')
+    .notNull()
+    .references(() => seoResearch.id, { onDelete: 'cascade' }),
+  mainQuery: text('main_query').notNull(),
+  totalFrequency: integer('total_frequency').notNull().default(0),
+  queriesCount: integer('queries_count').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const queries = pgTable('queries', {
+  id: uuid('id').primaryKey(),
+  researchId: uuid('research_id')
+    .notNull()
+    .references(() => seoResearch.id, { onDelete: 'cascade' }),
+  query: text('query').notNull(),
+  frequency: integer('frequency').notNull().default(0),
+  type: varchar('type', { length: 30 }),
+  destination: varchar('destination', { length: 20 }),
+  relevance: integer('relevance'),
+  reason: text('reason'),
+  clusterId: uuid('cluster_id').references(() => clusters.id, {
+    onDelete: 'set null',
+  }),
+  source: varchar('source', { length: 30 }).notNull().default('seed'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const contentPlan = pgTable('content_plan', {
+  id: uuid('id').primaryKey(),
+  researchId: uuid('research_id')
+    .notNull()
+    .references(() => seoResearch.id, { onDelete: 'cascade' }),
+  clusterId: uuid('cluster_id').references(() => clusters.id, {
+    onDelete: 'set null',
+  }),
+  sourceUrl: text('source_url').notNull(),
+  targetUrl: text('target_url').notNull(),
+  contentType: varchar('content_type', { length: 20 }).notNull(),
+  title: text('title').notNull(),
+  metaDescription: text('meta_description'),
+  mainQuery: text('main_query').notNull(),
+  articlePreview: text('article_preview'),
+  plannedDate: date('planned_date'),
+  status: varchar('status', { length: 20 }).notNull().default('draft'),
+  isApproved: boolean('is_approved').notNull().default(false),
+  approvedAt: timestamp('approved_at'),
+  publishedAt: timestamp('published_at'),
+  publishedUrl: text('published_url'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
 export const teamsRelations = relations(teams, ({ many }) => ({
   teamMembers: many(teamMembers),
   activityLogs: many(activityLogs),
@@ -185,6 +253,43 @@ export const indexChecksRelations = relations(indexChecks, ({ one }) => ({
   }),
 }));
 
+export const seoResearchRelations = relations(seoResearch, ({ many }) => ({
+  queries: many(queries),
+  clusters: many(clusters),
+  contentPlan: many(contentPlan),
+}));
+
+export const queriesRelations = relations(queries, ({ one }) => ({
+  research: one(seoResearch, {
+    fields: [queries.researchId],
+    references: [seoResearch.id],
+  }),
+  cluster: one(clusters, {
+    fields: [queries.clusterId],
+    references: [clusters.id],
+  }),
+}));
+
+export const clustersRelations = relations(clusters, ({ one, many }) => ({
+  research: one(seoResearch, {
+    fields: [clusters.researchId],
+    references: [seoResearch.id],
+  }),
+  queries: many(queries),
+  contentPlan: many(contentPlan),
+}));
+
+export const contentPlanRelations = relations(contentPlan, ({ one }) => ({
+  research: one(seoResearch, {
+    fields: [contentPlan.researchId],
+    references: [seoResearch.id],
+  }),
+  cluster: one(clusters, {
+    fields: [contentPlan.clusterId],
+    references: [clusters.id],
+  }),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;
@@ -201,6 +306,14 @@ export type LlmCheck = typeof llmChecks.$inferSelect;
 export type NewLlmCheck = typeof llmChecks.$inferInsert;
 export type IndexCheck = typeof indexChecks.$inferSelect;
 export type NewIndexCheck = typeof indexChecks.$inferInsert;
+export type SeoResearch = typeof seoResearch.$inferSelect;
+export type NewSeoResearch = typeof seoResearch.$inferInsert;
+export type Query = typeof queries.$inferSelect;
+export type NewQuery = typeof queries.$inferInsert;
+export type Cluster = typeof clusters.$inferSelect;
+export type NewCluster = typeof clusters.$inferInsert;
+export type ContentPlan = typeof contentPlan.$inferSelect;
+export type NewContentPlan = typeof contentPlan.$inferInsert;
 export type TeamDataWithMembers = Team & {
   teamMembers: (TeamMember & {
     user: Pick<User, 'id' | 'name' | 'email'>;

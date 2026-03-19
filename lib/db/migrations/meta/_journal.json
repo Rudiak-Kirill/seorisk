@@ -29,6 +29,13 @@
       "when": 1773306000000,
       "tag": "0003_happy_brood",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773926613361,
+      "tag": "0004_sloppy_agent_zero",
+      "breakpoints": true
     }
   ]
 }
