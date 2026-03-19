@@ -57,6 +57,25 @@ type CompareSiteMetrics = {
     schema_critical: boolean | null;
     faq_found: boolean | null;
   };
+  content: {
+    page_type: string | null;
+    representative_url: string | null;
+    verdict: 'ok' | 'warn' | 'fail' | null;
+    critical_count: number | null;
+    important_count: number | null;
+    improve_count: number | null;
+    article_url: string | null;
+    article_word_count: number | null;
+    article_density_percent: number | null;
+    article_author_found: boolean | null;
+    article_schema_found: boolean | null;
+    article_internal_links: number | null;
+    article_images_count: number | null;
+    items_on_page: number | null;
+    pagination_pages: number | null;
+    estimated_assortment: number | null;
+    infinite_scroll: boolean | null;
+  };
   subdomains: {
     found: number | null;
     checked: number | null;
@@ -294,6 +313,70 @@ const SECTION_ROWS: Array<{ title: string; rows: RowConfig[] }> = [
     ],
   },
   {
+    title: 'Контент-чек',
+    rows: [
+      {
+        label: 'Типовая страница',
+        getValue: (site) => site.metrics.content.page_type,
+        render: (site) => site.metrics.content.page_type || '—',
+      },
+      {
+        label: 'Вердикт',
+        getValue: (site) => site.metrics.content.verdict,
+        render: (site) => contentVerdictLabel(site.metrics.content.verdict),
+        compare: (own, current) =>
+          compareContentVerdict(own.metrics.content.verdict, current.metrics.content.verdict),
+      },
+      {
+        label: 'Критические',
+        getValue: (site) => site.metrics.content.critical_count,
+        render: (site) => formatNumber(site.metrics.content.critical_count),
+        compare: (own, current) =>
+          compareNumbers(
+            own.metrics.content.critical_count,
+            current.metrics.content.critical_count,
+            'lower'
+          ),
+      },
+      {
+        label: 'Важные',
+        getValue: (site) => site.metrics.content.important_count,
+        render: (site) => formatNumber(site.metrics.content.important_count),
+        compare: (own, current) =>
+          compareNumbers(
+            own.metrics.content.important_count,
+            current.metrics.content.important_count,
+            'lower'
+          ),
+      },
+      {
+        label: 'Товаров в кат.',
+        getValue: (site) => site.metrics.content.estimated_assortment,
+        render: (site) => renderEstimatedCount(site.metrics.content.estimated_assortment),
+        compare: (own, current) =>
+          compareNumbers(
+            own.metrics.content.estimated_assortment,
+            current.metrics.content.estimated_assortment,
+            'higher'
+          ),
+      },
+      {
+        label: 'Страниц пагинации',
+        getValue: (site) => site.metrics.content.pagination_pages,
+        render: (site) =>
+          site.metrics.content.infinite_scroll
+            ? 'Infinite scroll'
+            : formatNumber(site.metrics.content.pagination_pages),
+        compare: (own, current) =>
+          compareNumbers(
+            own.metrics.content.pagination_pages,
+            current.metrics.content.pagination_pages,
+            'higher'
+          ),
+      },
+    ],
+  },
+  {
     title: 'Поддомены',
     rows: [
       {
@@ -353,6 +436,11 @@ function renderCountPercent(count: number | null | undefined, percent: number | 
   );
 }
 
+function renderEstimatedCount(value: number | null | undefined) {
+  if (value === null || value === undefined) return '—';
+  return `~${formatNumber(value)}`;
+}
+
 function createCountPercentRow(label: string, countKey: StructureCountKey, percentKey: StructurePercentKey): RowConfig {
   return {
     label,
@@ -373,6 +461,13 @@ function hasAnyStructureValue(sites: CompareSiteResult[], key: StructureCountKey
 function boolLabel(value: boolean | null | undefined, yes = '✅', no = '❌') {
   if (value === null || value === undefined) return '—';
   return value ? yes : no;
+}
+
+function contentVerdictLabel(value: 'ok' | 'warn' | 'fail' | null | undefined) {
+  if (!value) return '—';
+  if (value === 'fail') return '🔴';
+  if (value === 'warn') return '⚠️';
+  return '✅';
 }
 
 function compareNumbers(
@@ -434,6 +529,17 @@ function compareWarningOrGrowth(ownValue: boolean | null | undefined, competitor
   return null;
 }
 
+function compareContentVerdict(
+  ownValue: 'ok' | 'warn' | 'fail' | null | undefined,
+  competitorValue: 'ok' | 'warn' | 'fail' | null | undefined
+) {
+  if (!ownValue || !competitorValue || ownValue === competitorValue) return null;
+  const weight = { ok: 3, warn: 2, fail: 1 };
+  return weight[competitorValue] > weight[ownValue]
+    ? { text: '↑', tone: 'text-red-600' }
+    : { text: '↓', tone: 'text-green-600' };
+}
+
 function getHostLabel(url: string) {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -456,6 +562,8 @@ function errorLabel(code: string) {
       return 'LLM Check';
     case 'subdomains':
       return 'Subdomain Check';
+    case 'content':
+      return 'Content Check';
     default:
       return code;
   }
@@ -579,7 +687,71 @@ export default function ComparePage() {
         ),
     });
 
-    return [baseSections[0], { title: 'Структура', rows: structureRows }, ...baseSections.slice(1)];
+    const contentSection = baseSections.find((section) => section.title === 'Контент-чек');
+    const otherSections = baseSections.filter((section) => section.title !== 'Контент-чек');
+    const contentRows = contentSection ? [...contentSection.rows] : [];
+
+    if (orderedSites.some((site) => site.metrics.content.article_word_count !== null)) {
+      contentRows.push(
+        {
+          label: 'Объём статьи',
+          getValue: (site) => site.metrics.content.article_word_count,
+          render: (site) =>
+            site.metrics.content.article_word_count !== null
+              ? `${formatNumber(site.metrics.content.article_word_count)} слов`
+              : '—',
+          compare: (own, current) =>
+            compareNumbers(
+              own.metrics.content.article_word_count,
+              current.metrics.content.article_word_count,
+              'higher'
+            ),
+        },
+        {
+          label: 'Автор статьи',
+          getValue: (site) => site.metrics.content.article_author_found,
+          render: (site) => boolLabel(site.metrics.content.article_author_found),
+          compare: (own, current) =>
+            compareGrowth(own.metrics.content.article_author_found, current.metrics.content.article_author_found),
+        },
+        {
+          label: 'Schema Article',
+          getValue: (site) => site.metrics.content.article_schema_found,
+          render: (site) => boolLabel(site.metrics.content.article_schema_found),
+          compare: (own, current) =>
+            compareGrowth(own.metrics.content.article_schema_found, current.metrics.content.article_schema_found),
+        },
+        {
+          label: 'Внутр. ссылок в статье',
+          getValue: (site) => site.metrics.content.article_internal_links,
+          render: (site) => formatNumber(site.metrics.content.article_internal_links),
+          compare: (own, current) =>
+            compareNumbers(
+              own.metrics.content.article_internal_links,
+              current.metrics.content.article_internal_links,
+              'higher'
+            ),
+        },
+        {
+          label: 'Изображений в статье',
+          getValue: (site) => site.metrics.content.article_images_count,
+          render: (site) => formatNumber(site.metrics.content.article_images_count),
+          compare: (own, current) =>
+            compareNumbers(
+              own.metrics.content.article_images_count,
+              current.metrics.content.article_images_count,
+              'higher'
+            ),
+        }
+      );
+    }
+
+    return [
+      baseSections[0],
+      { title: 'Структура', rows: structureRows },
+      ...(contentSection ? [{ title: 'Контент-чек', rows: contentRows }] : []),
+      ...otherSections.filter((section) => section.title !== 'Профиль'),
+    ];
   }, [orderedSites]);
 
   const onCompare = async () => {

@@ -11,6 +11,7 @@ const CHECK_TIMEOUT_MS = {
   index: 60_000,
   llm: 120_000,
   subdomains: 75_000,
+  content: 90_000,
 } as const;
 
 type SiteProfileResponse = {
@@ -119,6 +120,27 @@ type SubdomainCheckResponse = {
   }>;
 };
 
+type ContentCheckResponse = {
+  ok: boolean;
+  compare_summary: {
+    representative_url: string;
+    page_type: string;
+    critical_count: number;
+    important_count: number;
+    improve_count: number;
+    word_count: number | null;
+    content_density_percent: number | null;
+    internal_links: number | null;
+    content_images: number | null;
+    author_found: boolean | null;
+    article_schema_found: boolean | null;
+    items_on_page: number | null;
+    pagination_pages: number | null;
+    estimated_assortment: number | null;
+    infinite_scroll: boolean;
+  };
+};
+
 type CompareSiteResponse = {
   ok: true;
   site_url: string;
@@ -172,6 +194,25 @@ type CompareSiteResponse = {
       llms_txt: boolean | null;
       schema_critical: boolean | null;
       faq_found: boolean | null;
+    };
+    content: {
+      page_type: string | null;
+      representative_url: string | null;
+      verdict: 'ok' | 'warn' | 'fail' | null;
+      critical_count: number | null;
+      important_count: number | null;
+      improve_count: number | null;
+      article_url: string | null;
+      article_word_count: number | null;
+      article_density_percent: number | null;
+      article_author_found: boolean | null;
+      article_schema_found: boolean | null;
+      article_internal_links: number | null;
+      article_images_count: number | null;
+      items_on_page: number | null;
+      pagination_pages: number | null;
+      estimated_assortment: number | null;
+      infinite_scroll: boolean | null;
     };
     subdomains: {
       found: number | null;
@@ -302,7 +343,16 @@ export async function POST(req: Request) {
     const origins = getInternalOrigins(req);
     const domain = new URL(siteUrl).hostname.toLowerCase().replace(/^www\./, '');
 
-    const [siteProfileResult, speedResult, ssrResult, indexResult, llmResult, subdomainResult] =
+    const [
+      siteProfileResult,
+      speedResult,
+      ssrResult,
+      indexResult,
+      llmResult,
+      subdomainResult,
+      contentResult,
+      articleContentResult,
+    ] =
       await Promise.allSettled([
         postJson<SiteProfileResponse>(origins, '/api/site-profile', { url: siteUrl, phase: 'full' }, CHECK_TIMEOUT_MS.siteProfile),
         postJson<SpeedCheckResponse>(origins, '/api/speed-check', { url: siteUrl, phase: 'full' }, CHECK_TIMEOUT_MS.speed),
@@ -310,6 +360,18 @@ export async function POST(req: Request) {
         postJson<IndexCheckResponse>(origins, '/api/index-check', { url: siteUrl }, CHECK_TIMEOUT_MS.index),
         postJson<LlmCheckResponse>(origins, '/api/llm-check', { url: siteUrl }, CHECK_TIMEOUT_MS.llm),
         postJson<SubdomainCheckResponse>(origins, '/api/subdomain-check', { domain }, CHECK_TIMEOUT_MS.subdomains),
+        postJson<ContentCheckResponse>(
+          origins,
+          '/api/content-check',
+          { url: siteUrl, mode: 'representative' },
+          CHECK_TIMEOUT_MS.content
+        ),
+        postJson<ContentCheckResponse>(
+          origins,
+          '/api/content-check',
+          { url: siteUrl, mode: 'representative-article' },
+          CHECK_TIMEOUT_MS.content
+        ),
       ]);
 
     const errors: string[] = [];
@@ -323,6 +385,10 @@ export async function POST(req: Request) {
     const llm = llmResult.status === 'fulfilled' && llmResult.value?.ok ? llmResult.value : null;
     const subdomains =
       subdomainResult.status === 'fulfilled' && subdomainResult.value?.ok ? subdomainResult.value : null;
+    const content =
+      contentResult.status === 'fulfilled' && contentResult.value?.ok ? contentResult.value : null;
+    const articleContent =
+      articleContentResult.status === 'fulfilled' && articleContentResult.value?.ok ? articleContentResult.value : null;
 
     if (!siteProfile) errors.push('site_profile');
     if (!speed) errors.push('speed');
@@ -330,6 +396,7 @@ export async function POST(req: Request) {
     if (!index) errors.push('index');
     if (!llm) errors.push('llm');
     if (!subdomains) errors.push('subdomains');
+    if (!content) errors.push('content');
 
     const commerceFound = siteProfile
       ? siteProfile.commerce.critical.found + siteProfile.commerce.important.found + siteProfile.commerce.additional.found
@@ -343,6 +410,8 @@ export async function POST(req: Request) {
           (item) => item.category === 'environment' && item.state === 'working' && !item.robots_blocked && !item.noindex
         )
       : null;
+    const articleSummary =
+      articleContent?.compare_summary.page_type === 'Статья' ? articleContent.compare_summary : null;
 
     const payload: CompareSiteResponse = {
       ok: true,
@@ -397,6 +466,31 @@ export async function POST(req: Request) {
           llms_txt: siteProfile ? siteProfile.technical.llms_txt.status === 'ok' : null,
           schema_critical: llm ? (llm.ai_readiness?.details?.schema_priorities?.critical?.matched?.length || 0) > 0 : null,
           faq_found: llm ? (llm.ai_readiness?.details?.faq_signals?.length || 0) > 0 : null,
+        },
+        content: {
+          page_type: content?.compare_summary.page_type || null,
+          representative_url: content?.compare_summary.representative_url || null,
+          verdict: content
+            ? content.compare_summary.critical_count > 0
+              ? 'fail'
+              : content.compare_summary.important_count > 0
+                ? 'warn'
+                : 'ok'
+            : null,
+          critical_count: content?.compare_summary.critical_count ?? null,
+          important_count: content?.compare_summary.important_count ?? null,
+          improve_count: content?.compare_summary.improve_count ?? null,
+          article_url: articleSummary?.representative_url || null,
+          article_word_count: articleSummary?.word_count ?? null,
+          article_density_percent: articleSummary?.content_density_percent ?? null,
+          article_author_found: articleSummary?.author_found ?? null,
+          article_schema_found: articleSummary?.article_schema_found ?? null,
+          article_internal_links: articleSummary?.internal_links ?? null,
+          article_images_count: articleSummary?.content_images ?? null,
+          items_on_page: content?.compare_summary.items_on_page ?? null,
+          pagination_pages: content?.compare_summary.pagination_pages ?? null,
+          estimated_assortment: content?.compare_summary.estimated_assortment ?? null,
+          infinite_scroll: content?.compare_summary.infinite_scroll ?? null,
         },
         subdomains: {
           found: subdomains?.summary.found ?? null,

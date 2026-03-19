@@ -16,6 +16,7 @@ const navLinks = [
   { href: '/tools/llm-check', label: 'LLM Check' },
   { href: '/tools/index-check', label: 'Index Check' },
   { href: '/tools/speed-check', label: 'Speed Check' },
+  { href: '/tools/content-check', label: 'Content Check' },
   { href: '/tools/site-profile', label: 'Site Profile' },
   { href: '/tools/subdomain-check', label: 'Subdomain Check' },
   { href: '/tools/compare', label: 'Compare' },
