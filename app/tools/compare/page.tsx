@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import ToolProgress from '@/components/tool-progress';
@@ -17,7 +17,9 @@ type CompareSiteMetrics = {
   };
   structure: {
     sitemap_total: number | null;
+    commercial_count: number | null;
     commercial_percent: number | null;
+    informational_count: number | null;
     informational_percent: number | null;
     commercial_signals_found: number | null;
     commercial_signals_total: number | null;
@@ -90,7 +92,7 @@ type CellNote = {
 type RowConfig = {
   label: string;
   getValue: (site: CompareSiteResult) => unknown;
-  render: (site: CompareSiteResult) => string;
+  render: (site: CompareSiteResult) => ReactNode;
   compare?: (own: CompareSiteResult, current: CompareSiteResult) => CellNote | null;
 };
 
@@ -134,17 +136,26 @@ const SECTION_ROWS: Array<{ title: string; rows: RowConfig[] }> = [
       },
       {
         label: 'Коммерческих',
-        getValue: (site) => site.metrics.structure.commercial_percent,
-        render: (site) => formatPercent(site.metrics.structure.commercial_percent),
+        getValue: (site) => site.metrics.structure.commercial_count,
+        render: (site) =>
+          renderCountPercent(site.metrics.structure.commercial_count, site.metrics.structure.commercial_percent),
         compare: (own, current) =>
-          compareNumbers(own.metrics.structure.commercial_percent, current.metrics.structure.commercial_percent, 'higher'),
+          compareNumbers(own.metrics.structure.commercial_count, current.metrics.structure.commercial_count, 'higher'),
       },
       {
         label: 'Информационных',
-        getValue: (site) => site.metrics.structure.informational_percent,
-        render: (site) => formatPercent(site.metrics.structure.informational_percent),
+        getValue: (site) => site.metrics.structure.informational_count,
+        render: (site) =>
+          renderCountPercent(
+            site.metrics.structure.informational_count,
+            site.metrics.structure.informational_percent
+          ),
         compare: (own, current) =>
-          compareNumbers(own.metrics.structure.informational_percent, current.metrics.structure.informational_percent, 'higher'),
+          compareNumbers(
+            own.metrics.structure.informational_count,
+            current.metrics.structure.informational_count,
+            'higher'
+          ),
       },
       {
         label: 'Коммерч. сигналы',
@@ -291,6 +302,19 @@ function formatNumber(value: number | null | undefined) {
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined) return '—';
   return `${Math.round(value)}%`;
+}
+
+function renderCountPercent(count: number | null | undefined, percent: number | null | undefined) {
+  if (count === null || count === undefined || percent === null || percent === undefined) {
+    return '—';
+  }
+
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-base font-semibold text-gray-900">{formatNumber(count)}</span>
+      <span className="text-xs text-gray-500">{formatPercent(percent)}</span>
+    </div>
+  );
 }
 
 function boolLabel(value: boolean | null | undefined, yes = '✅', no = '❌') {
@@ -635,7 +659,14 @@ export default function ComparePage() {
               ) : null}
 
               <div className="mt-8 overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <table className="min-w-full table-fixed divide-y divide-gray-200 text-sm">
+                  <colgroup>
+                    <col className="w-36" />
+                    <col className="w-52" />
+                    {orderedSites.map((site) => (
+                      <col key={`${site.domain}-col`} className="w-44" />
+                    ))}
+                  </colgroup>
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="w-36 px-4 py-3 text-left font-medium text-gray-500">Раздел</th>
@@ -663,7 +694,7 @@ export default function ComparePage() {
                             return (
                               <td key={`${section.title}-${row.label}-${site.domain}`} className="px-4 py-3 text-gray-700">
                                 <div className="flex items-center gap-2">
-                                  <span>{row.render(site)}</span>
+                                  <div className="min-w-0">{row.render(site)}</div>
                                   {note ? <span className={`text-xs font-semibold ${note.tone}`}>{note.text}</span> : null}
                                 </div>
                               </td>

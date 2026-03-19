@@ -16,8 +16,8 @@ type SiteProfileResponse = {
   };
   structure: {
     total_urls: number | null;
-    commercial: { percent: number | null };
-    informational: { percent: number | null };
+    commercial: { count: number | null; percent: number | null };
+    informational: { count: number | null; percent: number | null };
     yandex_iks: string;
   };
   commerce: {
@@ -118,7 +118,9 @@ type CompareSiteResponse = {
     };
     structure: {
       sitemap_total: number | null;
+      commercial_count: number | null;
       commercial_percent: number | null;
+      informational_count: number | null;
       informational_percent: number | null;
       commercial_signals_found: number | null;
       commercial_signals_total: number | null;
@@ -308,7 +310,9 @@ export async function POST(req: Request) {
         },
         structure: {
           sitemap_total: siteProfile?.structure.total_urls ?? null,
+          commercial_count: siteProfile?.structure.commercial.count ?? null,
           commercial_percent: siteProfile?.structure.commercial.percent ?? null,
+          informational_count: siteProfile?.structure.informational.count ?? null,
           informational_percent: siteProfile?.structure.informational.percent ?? null,
           commercial_signals_found: commerceFound,
           commercial_signals_total: commerceTotal,
