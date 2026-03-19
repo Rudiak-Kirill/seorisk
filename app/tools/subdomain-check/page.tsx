@@ -38,6 +38,7 @@ type SubdomainRow = {
   source: 'crt.sh' | 'bruteforce' | 'mixed';
   status: number | null;
   state: State;
+  seo_working: boolean;
   redirect_target: string | null;
   category: Category;
   title: string | null;
@@ -124,7 +125,13 @@ function severityClass(severity: Severity) {
     : 'bg-amber-100 text-amber-700 border-amber-200';
 }
 
-function stateLabel(state: State, status: number | null) {
+function stateLabel(item: Pick<SubdomainRow, 'state' | 'status' | 'seo_working' | 'robots_blocked' | 'noindex'>) {
+  const { state, status, seo_working, robots_blocked, noindex } = item;
+  if (state === 'working' && !seo_working) {
+    if (noindex) return 'закрыт meta noindex';
+    if (robots_blocked) return 'закрыт в robots.txt';
+    return 'закрыт от индекса';
+  }
   if (state === 'working') return status ? String(status) : '200';
   if (state === 'redirect') return status ? String(status) : '301';
   if (state === 'closed') return status ? String(status) : '403';
@@ -133,7 +140,9 @@ function stateLabel(state: State, status: number | null) {
   return status ? String(status) : 'ошибка';
 }
 
-function stateTone(state: State) {
+function stateTone(item: Pick<SubdomainRow, 'state' | 'seo_working'>) {
+  const { state, seo_working } = item;
+  if (state === 'working' && !seo_working) return 'text-amber-600';
   if (state === 'working') return 'text-green-600';
   if (state === 'redirect') return 'text-amber-600';
   if (state === 'closed') return 'text-gray-600';
@@ -368,8 +377,8 @@ export default function SubdomainCheckPage() {
                               <div className="mt-1 text-xs text-gray-500">→ {item.redirect_target}</div>
                             ) : null}
                           </td>
-                          <td className={`px-4 py-3 align-top ${stateTone(item.state)}`}>
-                            {stateLabel(item.state, item.status)}
+                          <td className={`px-4 py-3 align-top ${stateTone(item)}`}>
+                            {stateLabel(item)}
                           </td>
                           <td className="px-4 py-3 align-top text-gray-700">
                             {categoryLabel(item.category)}

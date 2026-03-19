@@ -149,6 +149,7 @@ export type SubdomainRow = {
   source: 'crt.sh' | 'bruteforce' | 'mixed';
   status: number | null;
   state: SubdomainState;
+  seo_working: boolean;
   redirect_target: string | null;
   category: SubdomainCategory;
   title: string | null;
@@ -1063,6 +1064,7 @@ export async function runSubdomainCheck(
       source: formatSource(item.source),
       status: item.status,
       state: item.state,
+      seo_working: isIndexable(item),
       redirect_target: item.redirectTarget,
       category: item.category,
       title: item.title,
@@ -1091,9 +1093,9 @@ export async function runSubdomainCheck(
     summary: {
       found: allSources.size,
       checked: rows.length,
-      working: rows.filter((item) => item.state === 'working').length,
+      working: rows.filter((item) => item.seo_working).length,
       redirects: rows.filter((item) => item.state === 'redirect').length,
-      unavailable: rows.filter((item) => !['working', 'redirect'].includes(item.state)).length,
+      unavailable: rows.filter((item) => !item.seo_working && item.state !== 'redirect').length,
       crt_found: crtHosts.size,
       brute_found: bruteHosts.size,
       message,
