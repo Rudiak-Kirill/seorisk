@@ -346,7 +346,7 @@ export default function SiteProfilePage() {
                     <div className="mt-1 text-sm font-medium text-gray-900">{data.profile.topic}</div>
                   </div>
                   <div>
-                    <div className="text-xs uppercase tracking-wide text-gray-500">Домен</div>
+                    <div className="text-xs uppercase tracking-wide text-gray-500">Возраст домена</div>
                     <div className="mt-1 text-sm font-medium text-gray-900">{data.profile.domain_age_label}</div>
                   </div>
                   <div className="md:col-span-2 xl:col-span-4">

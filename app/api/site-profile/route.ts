@@ -1107,6 +1107,41 @@ async function fetchRuWhoisFromHttp(url: string, rawSource: string) {
   }
 }
 
+async function fetchRuWhoisViaTcinetHttp(domain: string) {
+  try {
+    const response = await fetchWithTimeout(
+      'https://whois.tcinet.ru/domain/',
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'text/plain,text/html;q=0.9,*/*;q=0.8',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'User-Agent': BROWSER_UA,
+        },
+        body: new URLSearchParams({ dmn: domain }).toString(),
+      },
+      SEARCH_TIMEOUT_MS
+    );
+
+    if (!response.ok) {
+      return createEmptyWhois('whois.tcinet.ru/http');
+    }
+
+    const text = await response.text();
+    const createdAt = extractWhoisCreatedAt(text);
+    const registrar = extractWhoisRegistrar(text);
+
+    return {
+      createdAt,
+      ageYears: calculateAgeYears(createdAt),
+      registrar,
+      rawSource: 'whois.tcinet.ru/http',
+    };
+  } catch {
+    return createEmptyWhois('whois.tcinet.ru/http');
+  }
+}
+
 async function fetchRuWhoisViaTcinet(domain: string) {
   return await new Promise<{
     createdAt: string | null;
@@ -1229,6 +1264,9 @@ async function fetchDomainWhois(domain: string) {
       'reg.ru'
     );
     if (reg.createdAt) return reg;
+
+    const tcinetHttp = await fetchRuWhoisViaTcinetHttp(domain);
+    if (tcinetHttp.createdAt) return tcinetHttp;
 
     const tcinet = await fetchRuWhoisViaTcinet(domain);
     if (tcinet.createdAt) return tcinet;
