@@ -165,6 +165,7 @@ type BaseFeatures = {
   bodyHtml: string;
   contentDensityPercent: number;
   priceText: string | null;
+  priceMentionsCount: number;
   buyButtonLabel: string | null;
   formFound: boolean;
   filterFound: boolean;
@@ -213,9 +214,11 @@ type BaseFeatures = {
   requisitesFound: boolean;
   faqFound: boolean;
   productSchemaFound: boolean;
+  productSchemaCount: number;
   offerSchemaFound: boolean;
   reviewSchemaFound: boolean;
   itemListSchemaFound: boolean;
+  itemListSchemaCount: number;
   breadcrumbSchemaFound: boolean;
   articleSchemaFound: boolean;
   authorSchemaFound: boolean;
@@ -397,6 +400,30 @@ function extractJsonLdTypes(html: string) {
   return Array.from(types);
 }
 
+function countJsonLdTypeOccurrences(html: string, types: string[]) {
+  const escaped = types.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`"@type"\\s*:\\s*(?:"(${escaped.join('|')})"|\\[(.*?)\\])`, 'gi');
+  let count = 0;
+
+  for (const match of html.matchAll(pattern)) {
+    if (match[1]) {
+      count += 1;
+      continue;
+    }
+
+    const listValue = match[2] || '';
+    for (const item of types) {
+      const itemPattern = new RegExp(`"${item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'i');
+      if (itemPattern.test(listValue)) {
+        count += 1;
+        break;
+      }
+    }
+  }
+
+  return count;
+}
+
 function countMatches(text: string, pattern: RegExp) {
   return Array.from(text.matchAll(pattern)).length;
 }
@@ -522,18 +549,34 @@ function countListingBlocks(html: string) {
 }
 
 function detectPagination(html: string, finalUrl: string) {
-  const links = Array.from(html.matchAll(/<(a|link)\b([^>]*?)href=["']([^"']+)["']([^>]*)>/gi)).map((item) => ({
+  const links = Array.from(
+    html.matchAll(/<(a|link)\b([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>?/gi)
+  ).map((item) => ({
     attrs: `${item[2] || ''} ${item[4] || ''}`,
     href: item[3] || '',
+    text: decodeHtmlEntities(stripHtml(item[5] || '')),
   }));
+
+  const hasExplicitPaginationHref = (value: string) =>
+    /[?&](?:page|paged|pagen(?:_\d+)?)=\d{1,5}/i.test(value) || /\/page\/\d{1,5}(?:\/|$)/i.test(value);
+  const looksPaginationLink = (attrs: string, text: string, href: string) =>
+    /\brel=["'][^"']*(?:last|next|prev)[^"']*["']/i.test(attrs) ||
+    /(pagination|pager|page-nav|nav-pages|pagen)/i.test(attrs) ||
+    /^(?:\d{1,5}|следующая|предыдущая|далее|назад|next|prev)$/i.test(text.trim()) ||
+    hasExplicitPaginationHref(href);
 
   const relLast = links.find((item) => /\brel=["'][^"']*last[^"']*["']/i.test(item.attrs));
   let maxPage = extractPageNumber(relLast?.href || '') || 0;
+  let paginationDetected = Boolean(relLast && maxPage > 1);
 
   for (const link of links) {
+    if (!looksPaginationLink(link.attrs, link.text, link.href)) continue;
     const absoluteHref = absoluteUrl(link.href, finalUrl) || link.href;
     const candidate = extractPageNumber(absoluteHref) || 0;
-    if (candidate > maxPage) maxPage = candidate;
+    if (candidate > 0) {
+      paginationDetected = true;
+      if (candidate > maxPage) maxPage = candidate;
+    }
   }
 
   const paginationBlocks = Array.from(
@@ -550,7 +593,7 @@ function detectPagination(html: string, finalUrl: string) {
     html
   );
 
-  if (maxPage > 1) {
+  if (paginationDetected && maxPage > 1) {
     return { pageCount: maxPage, infiniteScroll: false, mode: 'pages' as const };
   }
 
@@ -558,7 +601,7 @@ function detectPagination(html: string, finalUrl: string) {
     return { pageCount: null, infiniteScroll: true, mode: 'infinite' as const };
   }
 
-  return { pageCount: 1, infiniteScroll: false, mode: 'single' as const };
+  return { pageCount: null, infiniteScroll: false, mode: 'single' as const };
 }
 
 function buildBaseFeatures(snapshot: FetchSnapshot, inputUrl: string): BaseFeatures {
@@ -575,6 +618,7 @@ function buildBaseFeatures(snapshot: FetchSnapshot, inputUrl: string): BaseFeatu
   const buttonTexts = extractButtonTexts(snapshot.html);
   const buyButtonLabel = buttonTexts.find((value) => /купить|в корзину|заказать|buy now|add to cart|оформить/i.test(value)) || null;
   const priceText = Array.from(visibleText.matchAll(/(?:\d[\d\s]{1,12})(?:[,.]\d+)?\s*(?:₽|руб\.?|р\.\b|₸|\$|€)/gi))[0]?.[0] || null;
+  const priceMentionsCount = countMatches(visibleText, /(?:\d[\d\s]{1,12})(?:[,.]\d+)?\s*(?:₽|руб\.?|р\.\b|₸|\$|€)/gi);
   const title = extractTagText(snapshot.html, 'title');
   const description = extractMetaContent(snapshot.html, 'name', 'description');
   const h1Text = extractTagText(snapshot.html, 'h1');
@@ -587,9 +631,11 @@ function buildBaseFeatures(snapshot: FetchSnapshot, inputUrl: string): BaseFeatu
   );
   const pagination = detectPagination(snapshot.html, finalUrl);
   const schemaProduct = schemaTypes.some((item) => PRODUCT_SCHEMA_TYPES.includes(item));
+  const productSchemaCount = countJsonLdTypeOccurrences(snapshot.html, ['Product']);
   const schemaOffer = schemaTypes.includes('Offer') || schemaTypes.includes('AggregateOffer');
   const schemaReview = schemaTypes.includes('Review') || schemaTypes.includes('AggregateRating');
   const schemaItemList = schemaTypes.some((item) => CATEGORY_SCHEMA_TYPES.includes(item));
+  const itemListSchemaCount = countJsonLdTypeOccurrences(snapshot.html, CATEGORY_SCHEMA_TYPES);
   const schemaArticle = schemaTypes.some((item) => ARTICLE_SCHEMA_TYPES.includes(item));
 
   return {
@@ -621,6 +667,7 @@ function buildBaseFeatures(snapshot: FetchSnapshot, inputUrl: string): BaseFeatu
     bodyHtml,
     contentDensityPercent,
     priceText,
+    priceMentionsCount,
     buyButtonLabel,
     formFound: /<form\b/i.test(snapshot.html),
     filterFound: /filter|фильтр/i.test(lowerHtml) && /<(form|select|input)\b/i.test(snapshot.html),
@@ -643,8 +690,8 @@ function buildBaseFeatures(snapshot: FetchSnapshot, inputUrl: string): BaseFeatu
     deliveryFound: /доставк|оплат/i.test(visibleText),
     categoryDescriptionFound: /описание категории|о категории/i.test(visibleText) || countWords(visibleText) >= 120,
     sortingFound: /sort|сортиров/i.test(lowerHtml),
-    paginationFound: /page=|rel=["']next["']|pagination|\/page\/\d+/i.test(lowerHtml),
-    infiniteScrollFound: /infinite|load more|подгрузить ещё/i.test(visibleText),
+    paginationFound: pagination.mode === 'pages',
+    infiniteScrollFound: pagination.infiniteScroll,
     subcategoriesFound: /подкатегор|подраздел/i.test(visibleText) || /class=["'][^"']*subcategory/i.test(snapshot.html),
     tocFound: /содержание|оглавление|table of contents/i.test(visibleText),
     readingTimeFound: /время чтения|мин чтения|read time/i.test(visibleText),
@@ -672,9 +719,11 @@ function buildBaseFeatures(snapshot: FetchSnapshot, inputUrl: string): BaseFeatu
     requisitesFound: /инн|огрн|кпп|ооо|ип\b|ао\b|пао\b/i.test(visibleText),
     faqFound: /faq|вопросы и ответы|частые вопросы/i.test(lowerHtml) || schemaTypes.includes('FAQPage'),
     productSchemaFound: schemaProduct,
+    productSchemaCount,
     offerSchemaFound: schemaOffer,
     reviewSchemaFound: schemaReview,
     itemListSchemaFound: schemaItemList,
+    itemListSchemaCount,
     breadcrumbSchemaFound: schemaTypes.includes('BreadcrumbList'),
     articleSchemaFound: schemaArticle,
     authorSchemaFound: schemaTypes.includes('Person') || /"author"/i.test(snapshot.html),
@@ -709,15 +758,24 @@ function scorePageType(features: BaseFeatures): TypeScore[] {
   if (/blog|article|news|stati|post/i.test(path)) add('article', 35, 'URL похож на статью');
   if (/landing|lp|promo/i.test(path)) add('landing', 25, 'URL похож на лендинг');
 
-  if (features.productSchemaFound) add('product', 60, 'есть schema Product');
-  if (features.itemListSchemaFound) add('category', 45, 'есть schema ItemList');
+  const strongCatalogSignals =
+    features.itemListSchemaFound ||
+    (features.listingCards >= 5 &&
+      (features.priceMentionsCount >= 5 ||
+        features.filterFound ||
+        /catalog|category|shop|store|products/i.test(path)));
+
+  if (strongCatalogSignals) add('category', 95, 'найден каталог: 5+ карточек с ценами, ItemList или структура листинга');
+  if (features.itemListSchemaFound) add('category', 55, 'есть schema ItemList');
+  if (features.productSchemaCount === 1 && !strongCatalogSignals) add('product', 70, 'один schema Product соответствует карточке товара');
+  if (features.productSchemaFound && !strongCatalogSignals) add('product', 40, 'есть schema Product');
   if (features.articleSchemaFound) add('article', 60, 'есть schema Article');
   if (features.phoneFound && features.addressFound && features.formFound) add('contacts', 35, 'есть контактные данные и форма');
   if (features.schemaTypes.includes('Organization') || features.schemaTypes.includes('LocalBusiness')) {
     add('informational', 30, 'есть schema Organization/LocalBusiness');
   }
-  if (features.priceText) add('product', 25, 'найдена цена');
-  if (features.buyButtonLabel) add('product', 30, 'найдена кнопка купить');
+  if (features.priceText && !strongCatalogSignals) add('product', 25, 'найдена цена');
+  if (features.buyButtonLabel && !strongCatalogSignals) add('product', 30, 'найдена кнопка купить');
   if (features.listingCards >= 4) add('category', 35, 'найден листинг карточек');
   if (features.filterFound) add('category', 25, 'найдены фильтры');
   if (features.wordCount >= 500 && features.h2Count + features.h3Count >= 3) add('article', 35, 'длинный текст с H2/H3');
@@ -730,7 +788,7 @@ function scorePageType(features: BaseFeatures): TypeScore[] {
   if (features.ctaFound && path === '/') add('home', 20, 'главная с CTA');
   if (features.wordCount < 220 && features.formFound && !features.articleSchemaFound && !features.itemListSchemaFound) add('landing', 15, 'короткий офферный контент');
   if (features.categoryDescriptionFound && features.listingCards >= 4) add('category', 10, 'есть описание категории');
-  if (features.relatedFound && features.priceText && features.buyButtonLabel) add('product', 10, 'есть рекомендации товара');
+  if (features.relatedFound && features.priceText && features.buyButtonLabel && !strongCatalogSignals) add('product', 10, 'есть рекомендации товара');
   if (features.faqFound && !features.articleSchemaFound && features.wordCount < 700) {
     add('informational', 20, 'есть FAQ-сигналы на информационной странице');
   }
@@ -820,13 +878,15 @@ function evaluateChecks(features: BaseFeatures, pageType: ContentPageType) {
     push(important, !features.paginationFound && !features.infiniteScrollFound, 'Пагинация не найдена', 'Проверьте индексацию всех страниц каталога.');
     push(
       important,
-      features.paginationMode !== 'infinite' && (features.estimatedAssortment || features.listingCards) > 0 && (features.estimatedAssortment || features.listingCards) < 20,
+      features.paginationMode === 'pages' &&
+        (features.estimatedAssortment || 0) > 0 &&
+        (features.estimatedAssortment || 0) < 20,
       'Малый ассортимент категории',
       'Возможно категория неразвита — проверьте полноту ассортимента и семантику раздела.'
     );
     push(
       important,
-      (features.estimatedAssortment || 0) > 1000,
+      features.paginationMode === 'pages' && (features.estimatedAssortment || 0) > 1000,
       'Очень большой ассортимент',
       'Убедитесь, что страницы пагинации индексируются и все товары попадают в sitemap.'
     );
@@ -835,7 +895,9 @@ function evaluateChecks(features: BaseFeatures, pageType: ContentPageType) {
     push(improve, features.infiniteScrollFound && !features.paginationFound, 'Infinite scroll без пагинации', 'Добавьте /page/2/ или альтернативные URL для индексации.');
     push(
       improve,
-      (features.estimatedAssortment || 0) > 500 && (features.estimatedAssortment || 0) <= 1000,
+      features.paginationMode === 'pages' &&
+        (features.estimatedAssortment || 0) > 500 &&
+        (features.estimatedAssortment || 0) <= 1000,
       'Большой ассортимент категории',
       'Проверьте индексацию глубоких страниц пагинации и полноту обхода раздела.'
     );
@@ -981,7 +1043,9 @@ function buildDetailGroups(features: BaseFeatures, pageType: ContentPageType) {
           value:
             features.paginationMode === 'infinite'
               ? 'Infinite scroll'
-              : String(features.paginationPageCount || 1),
+              : features.paginationMode === 'pages'
+                ? String(features.paginationPageCount || 1)
+                : 'не найдена',
         },
         {
           label: 'Примерный ассортимент',
@@ -990,18 +1054,19 @@ function buildDetailGroups(features: BaseFeatures, pageType: ContentPageType) {
               ? features.listingCards > 0
                 ? `не определить точно, минимум ${features.listingCards}`
                 : 'не определить точно'
-              : features.estimatedAssortment
+              : features.paginationMode === 'pages' && features.estimatedAssortment
                 ? `~${features.estimatedAssortment}`
-                : features.listingCards > 0
-                  ? `~${features.listingCards}`
-                  : 'не найден',
+                : 'не удалось определить',
         },
         { label: 'Цены в листинге', value: features.priceText ? 'есть' : 'нет' },
         { label: 'Фото в листинге', value: features.contentImages.length ? 'есть' : 'нет' },
         { label: 'Кнопка купить', value: features.buyButtonLabel ? 'есть' : 'нет' },
         { label: 'Фильтры', value: features.filterFound ? 'есть' : 'нет' },
         { label: 'Сортировка', value: features.sortingFound ? 'есть' : 'нет' },
-        { label: 'Пагинация', value: features.paginationFound ? 'есть' : features.infiniteScrollFound ? 'infinite scroll' : 'нет' },
+        {
+          label: 'Пагинация',
+          value: features.paginationMode === 'pages' ? 'есть' : features.infiniteScrollFound ? 'infinite scroll' : 'не найдена',
+        },
         { label: 'Подкатегории', value: features.subcategoriesFound ? 'есть' : 'нет' },
         { label: 'Описание категории', value: features.categoryDescriptionFound ? 'есть' : 'нет' },
         { label: 'Schema ItemList / BreadcrumbList', value: `${features.itemListSchemaFound ? '✅' : '❌'} / ${features.breadcrumbSchemaFound ? '✅' : '❌'}` },
@@ -1122,16 +1187,18 @@ function buildCatalogStructure(features: BaseFeatures) {
       ? features.listingCards > 0
         ? `Infinite scroll — точный подсчёт невозможен, минимум ${features.listingCards} товаров.`
         : 'Infinite scroll — точный подсчёт невозможен.'
-      : features.estimatedAssortment
+      : features.paginationFound && features.estimatedAssortment
         ? 'Приблизительно: товаров на странице × страниц пагинации.'
+        : features.listingCards > 0
+          ? 'Пагинация не найдена — определить ассортимент не удалось.'
         : null;
 
   return {
     items_on_page: features.listingCards || null,
     pagination_pages:
-      features.paginationMode === 'infinite' ? null : (features.paginationPageCount || 1),
+      features.paginationMode === 'pages' ? features.paginationPageCount : null,
     infinite_scroll: features.paginationMode === 'infinite',
-    estimated_assortment: features.estimatedAssortment,
+    estimated_assortment: features.paginationMode === 'pages' ? features.estimatedAssortment : null,
     minimum_items: features.listingCards || null,
     note,
   };
@@ -1286,11 +1353,11 @@ export async function runContentCheck(inputUrl: string, options: AnalyzeOptions 
   if (pageType.needsChoice) {
     const categoryItemsOnPage = pageType.key === 'category' ? features.listingCards || null : null;
     const categoryPaginationPages =
-      pageType.key === 'category' && features.paginationMode !== 'infinite'
-        ? (features.paginationPageCount || 1)
+      pageType.key === 'category' && features.paginationMode === 'pages'
+        ? features.paginationPageCount
         : null;
     const categoryEstimatedAssortment =
-      pageType.key === 'category' ? features.estimatedAssortment : null;
+      pageType.key === 'category' && features.paginationMode === 'pages' ? features.estimatedAssortment : null;
 
     return {
       ok: true,
@@ -1352,11 +1419,11 @@ export async function runContentCheck(inputUrl: string, options: AnalyzeOptions 
   const verdict = buildVerdict(issues, pageType.key, features);
   const categoryItemsOnPage = pageType.key === 'category' ? features.listingCards || null : null;
   const categoryPaginationPages =
-    pageType.key === 'category' && features.paginationMode !== 'infinite'
-      ? (features.paginationPageCount || 1)
+    pageType.key === 'category' && features.paginationMode === 'pages'
+      ? features.paginationPageCount
       : null;
   const categoryEstimatedAssortment =
-    pageType.key === 'category' ? features.estimatedAssortment : null;
+    pageType.key === 'category' && features.paginationMode === 'pages' ? features.estimatedAssortment : null;
 
   return {
     ok: true,

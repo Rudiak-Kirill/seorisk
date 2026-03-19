@@ -299,7 +299,9 @@ export default function ContentCheckPage() {
                           <div className="mt-2 text-2xl font-semibold text-gray-900">
                             {result.catalog_structure.infinite_scroll
                               ? 'Infinite scroll'
-                              : formatNumber(result.catalog_structure.pagination_pages)}
+                              : result.catalog_structure.pagination_pages !== null
+                                ? formatNumber(result.catalog_structure.pagination_pages)
+                                : 'не найдена'}
                           </div>
                         </div>
                         <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
@@ -311,7 +313,7 @@ export default function ContentCheckPage() {
                               ? `~${formatNumber(result.catalog_structure.estimated_assortment)}`
                               : result.catalog_structure.infinite_scroll
                                 ? 'не определить точно'
-                                : '—'}
+                                : 'не удалось определить'}
                           </div>
                         </div>
                       </div>
