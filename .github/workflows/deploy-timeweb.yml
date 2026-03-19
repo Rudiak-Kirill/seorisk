@@ -22,6 +22,16 @@ jobs:
             set -euo pipefail
             TARGET_SHA="${{ github.sha }}"
 
+            echo "Disk usage before cleanup:"
+            df -h /
+            docker system df || true
+
+            docker builder prune -af >/dev/null 2>&1 || true
+            docker image prune -af >/dev/null 2>&1 || true
+
+            echo "Disk usage after cleanup:"
+            df -h /
+
             git -C /srv/infra/vds-infra fetch origin
             git -C /srv/infra/vds-infra checkout main
             git -C /srv/infra/vds-infra reset --hard origin/main
