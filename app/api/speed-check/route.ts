@@ -83,6 +83,7 @@ type FetchSnapshot = {
   html: string;
   headers: Headers;
   ttfb_ms: number | null;
+  error?: string | null;
 };
 
 type PsiResult = {
@@ -96,6 +97,10 @@ type PsiResult = {
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const SECONDARY_BROWSER_UA =
+  'Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0';
+const FETCH_TIMEOUT_MS = 15_000;
+const FETCH_RETRY_TIMEOUT_MS = 25_000;
 
 function toNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -118,40 +123,82 @@ function normalizeUrl(value: string) {
 }
 
 async function fetchPage(url: string): Promise<FetchSnapshot> {
-  const started = process.hrtime.bigint();
+  const attemptPlan = [
+    { timeoutMs: FETCH_TIMEOUT_MS, userAgent: BROWSER_UA },
+    { timeoutMs: FETCH_RETRY_TIMEOUT_MS, userAgent: SECONDARY_BROWSER_UA },
+  ];
+  const candidates = /^https:\/\//i.test(url) ? [url, url.replace(/^https:\/\//i, 'http://')] : [url];
 
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: {
-        'User-Agent': BROWSER_UA,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-      },
-      cache: 'no-store',
-    });
-    const ttfb_ms = Number((Number(process.hrtime.bigint() - started) / 1_000_000).toFixed(0));
-    const html = await response.text();
+  let lastSnapshot: FetchSnapshot | null = null;
 
-    return {
-      ok: response.ok,
-      status: response.status,
-      final_url: response.url || url,
-      html,
-      headers: response.headers,
-      ttfb_ms,
-    };
-  } catch {
-    return {
+  for (const candidate of candidates) {
+    for (let index = 0; index < attemptPlan.length; index += 1) {
+      const attempt = attemptPlan[index];
+      const started = process.hrtime.bigint();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), attempt.timeoutMs);
+
+      try {
+        const response = await fetch(candidate, {
+          method: 'GET',
+          redirect: 'follow',
+          headers: {
+            'User-Agent': attempt.userAgent,
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+          },
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const ttfb_ms = Number((Number(process.hrtime.bigint() - started) / 1_000_000).toFixed(0));
+        const html = await response.text();
+
+        clearTimeout(timer);
+
+        return {
+          ok: response.ok,
+          status: response.status,
+          final_url: response.url || candidate,
+          html,
+          headers: response.headers,
+          ttfb_ms,
+          error: null,
+        };
+      } catch (error) {
+        clearTimeout(timer);
+        lastSnapshot = {
+          ok: false,
+          status: 0,
+          final_url: candidate,
+          html: '',
+          headers: new Headers(),
+          ttfb_ms: null,
+          error:
+            error instanceof DOMException && error.name === 'AbortError'
+              ? 'timeout'
+              : error instanceof Error
+                ? error.message || error.name
+                : String(error || 'fetch_error'),
+        };
+      }
+
+      if (index < attemptPlan.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+  }
+
+  return (
+    lastSnapshot || {
       ok: false,
       status: 0,
       final_url: url,
       html: '',
       headers: new Headers(),
       ttfb_ms: null,
-    };
-  }
+      error: 'fetch_error',
+    }
+  );
 }
 
 function detectCms(html: string, headers: Headers) {
@@ -753,7 +800,14 @@ export async function POST(req: Request) {
     const snapshot = await fetchPage(inputUrl);
 
     if (!snapshot.status) {
-      return NextResponse.json({ ok: false, error: 'Не удалось получить ответ от страницы' }, { status: 502 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Не удалось получить ответ от страницы',
+          reason: snapshot.error || 'fetch_error',
+        },
+        { status: 502 }
+      );
     }
 
     const payload =

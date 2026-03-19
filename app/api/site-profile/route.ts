@@ -7,11 +7,14 @@ export const runtime = 'nodejs';
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const SECONDARY_BROWSER_UA =
+  'Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0';
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const LLM_RELAY_URL = (process.env.LLM_RELAY_URL || '').replace(/\/+$/, '');
 const LLM_RELAY_SECRET = process.env.LLM_RELAY_SECRET || '';
 const FETCH_TIMEOUT_MS = 15_000;
+const FETCH_RETRY_TIMEOUT_MS = 25_000;
 const SEARCH_TIMEOUT_MS = 12_000;
 const MAX_SITEMAP_URLS = 200_000;
 const MAX_SITEMAP_FILES = 200;
@@ -51,6 +54,7 @@ type TextFetchResult = {
   text: string;
   finalUrl: string;
   headers: Headers;
+  error?: string | null;
 };
 
 type SitemapUrlEntry = {
@@ -206,6 +210,7 @@ type SiteProfileResponse = {
     sitemap_urls: string[];
   };
   error?: string;
+  reason?: string | null;
 };
 
 const commercialPatterns = [
@@ -397,7 +402,23 @@ async function fetchWithTimeout(
   }
 }
 
-async function fetchText(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<TextFetchResult> {
+function describeFetchError(error: unknown) {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return 'timeout';
+  }
+
+  if (error instanceof Error) {
+    return error.message || error.name || 'fetch_error';
+  }
+
+  return String(error || 'fetch_error');
+}
+
+async function fetchTextOnce(
+  url: string,
+  timeoutMs = FETCH_TIMEOUT_MS,
+  userAgent = BROWSER_UA
+): Promise<TextFetchResult> {
   try {
     const response = await fetchWithTimeout(
       url,
@@ -405,7 +426,7 @@ async function fetchText(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Tex
         method: 'GET',
         redirect: 'follow',
         headers: {
-          'User-Agent': BROWSER_UA,
+          'User-Agent': userAgent,
           Accept: 'text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.8',
           'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
         },
@@ -419,16 +440,60 @@ async function fetchText(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Tex
       text: await response.text(),
       finalUrl: response.url || url,
       headers: response.headers,
+      error: null,
     };
-  } catch {
+  } catch (error) {
     return {
       ok: false,
       status: 0,
       text: '',
       finalUrl: url,
       headers: new Headers(),
+      error: describeFetchError(error),
     };
   }
+}
+
+function getFetchCandidates(url: string) {
+  if (!/^https:\/\//i.test(url)) return [url];
+  return [url, url.replace(/^https:\/\//i, 'http://')];
+}
+
+async function fetchText(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<TextFetchResult> {
+  const candidates = getFetchCandidates(url);
+  const attemptPlan = [
+    { timeoutMs, userAgent: BROWSER_UA },
+    { timeoutMs: FETCH_RETRY_TIMEOUT_MS, userAgent: SECONDARY_BROWSER_UA },
+  ];
+
+  let lastResult: TextFetchResult | null = null;
+
+  for (const candidate of candidates) {
+    for (let index = 0; index < attemptPlan.length; index += 1) {
+      const attempt = attemptPlan[index];
+      const result = await fetchTextOnce(candidate, attempt.timeoutMs, attempt.userAgent);
+      if (result.text || result.ok || result.status >= 400) {
+        return result;
+      }
+
+      lastResult = result;
+
+      if (index < attemptPlan.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+  }
+
+  return (
+    lastResult || {
+      ok: false,
+      status: 0,
+      text: '',
+      finalUrl: url,
+      headers: new Headers(),
+      error: 'fetch_error',
+    }
+  );
 }
 
 function decodeHtmlEntities(value: string) {
@@ -476,12 +541,22 @@ function extractMetaContent(html: string, attr: 'name' | 'property', value: stri
 function detectCms(html: string, headers: Headers) {
   const server = (headers.get('server') || '').toLowerCase();
   const poweredBy = (headers.get('x-powered-by') || '').toLowerCase();
+  const poweredCms = (headers.get('x-powered-cms') || '').toLowerCase();
+  const setCookie = (headers.get('set-cookie') || '').toLowerCase();
   const htmlLower = html.toLowerCase();
+
   const hasBitrix =
     /bitrix/i.test(server) ||
     /bitrix/i.test(poweredBy) ||
+    /bitrix/i.test(poweredCms) ||
     htmlLower.includes('/bitrix/') ||
+    htmlLower.includes('/local/templates/') ||
+    htmlLower.includes('/upload/iblock/') ||
+    htmlLower.includes('/upload/resize_cache/') ||
     htmlLower.includes('bx.setcsslist') ||
+    htmlLower.includes('bx-core') ||
+    htmlLower.includes('bitrix_sessid') ||
+    setCookie.includes('bitrix_sm_') ||
     headers.has('x-powered-cms');
 
   const hasWordPress =
@@ -489,6 +564,41 @@ function detectCms(html: string, headers: Headers) {
     htmlLower.includes('wp-includes') ||
     htmlLower.includes('content="wordpress') ||
     headers.has('x-pingback');
+
+  const hasOpenCart =
+    htmlLower.includes('catalog/view/theme/') ||
+    htmlLower.includes('catalog/view/javascript/') ||
+    htmlLower.includes('index.php?route=') ||
+    htmlLower.includes('route=product/') ||
+    htmlLower.includes('ocstore') ||
+    htmlLower.includes('opencart');
+
+  const hasDrupal =
+    htmlLower.includes('drupal-settings-json') ||
+    htmlLower.includes('/sites/default/files/') ||
+    htmlLower.includes('/misc/drupal.js');
+
+  const hasJoomla =
+    htmlLower.includes('/media/system/js/') ||
+    htmlLower.includes('option=com_') ||
+    htmlLower.includes('joomla!');
+
+  const hasModx =
+    htmlLower.includes('content="modx') ||
+    htmlLower.includes('/assets/components/') ||
+    htmlLower.includes('/assets/templates/');
+
+  const hasWebasyst =
+    htmlLower.includes('webasyst') ||
+    htmlLower.includes('wa-content') ||
+    htmlLower.includes('shop-script');
+
+  const hasGooru =
+    htmlLower.includes('/gooru/') ||
+    htmlLower.includes('gooru/css/') ||
+    htmlLower.includes('gooru/js/');
+
+  const hasLaravel = poweredBy.includes('laravel') || setCookie.includes('laravel_session');
 
   const hasNext =
     /next\.js/i.test(poweredBy) ||
@@ -522,8 +632,15 @@ function detectCms(html: string, headers: Headers) {
   const primaryCms =
     (hasBitrix && 'Битрикс') ||
     (hasWordPress && 'WordPress') ||
+    (hasOpenCart && 'OpenCart') ||
+    (hasDrupal && 'Drupal') ||
+    (hasJoomla && 'Joomla') ||
+    (hasModx && 'MODX') ||
+    (hasWebasyst && 'Webasyst') ||
+    (hasGooru && 'Gooru') ||
     (hasShopify && 'Shopify') ||
     (hasTilda && 'Тильда') ||
+    (hasLaravel && 'Laravel') ||
     null;
 
   const frontendLayer = hasNext ? 'Next.js' : hasReact ? 'React' : hasSpaShell ? 'SPA' : null;
@@ -533,11 +650,12 @@ function detectCms(html: string, headers: Headers) {
   }
 
   if (primaryCms) return primaryCms;
+  if (poweredBy.includes('php')) return 'Самописный PHP';
   if (hasNext) return 'Next.js';
   if (hasReact) return 'React';
   if (hasSpaShell) return 'SPA';
 
-  return 'Другой';
+  return 'Другой / самописный';
 }
 
 function detectAnalytics(html: string) {
@@ -1908,6 +2026,7 @@ async function buildFullProfile(inputUrl: string): Promise<SiteProfileResponse> 
       ...createEmptyFullResponse(inputUrl, siteUrl, siteUrl),
       ok: false,
       error: 'Не удалось получить главную страницу сайта',
+      reason: homeResponse.error || 'fetch_error',
     };
   }
 
@@ -2167,7 +2286,7 @@ export async function POST(req: Request) {
       const homepage = await fetchText(normalized.origin);
       if (!homepage.text) {
         return NextResponse.json(
-          { ok: false, error: 'Не удалось получить главную страницу сайта' },
+          { ok: false, error: 'Не удалось получить главную страницу сайта', reason: homepage.error || 'fetch_error' },
           { status: 502 }
         );
       }

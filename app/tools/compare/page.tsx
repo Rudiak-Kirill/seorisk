@@ -21,6 +21,20 @@ type CompareSiteMetrics = {
     commercial_percent: number | null;
     informational_count: number | null;
     informational_percent: number | null;
+    application_count: number | null;
+    application_percent: number | null;
+    search_count: number | null;
+    search_percent: number | null;
+    documents_count: number | null;
+    documents_percent: number | null;
+    video_count: number | null;
+    video_percent: number | null;
+    faq_count: number | null;
+    faq_percent: number | null;
+    service_count: number | null;
+    service_percent: number | null;
+    unknown_count: number | null;
+    unknown_percent: number | null;
     commercial_signals_found: number | null;
     commercial_signals_total: number | null;
   };
@@ -88,6 +102,28 @@ type CellNote = {
   text: string;
   tone: string;
 };
+
+type StructureCountKey =
+  | 'commercial_count'
+  | 'informational_count'
+  | 'application_count'
+  | 'search_count'
+  | 'documents_count'
+  | 'video_count'
+  | 'faq_count'
+  | 'service_count'
+  | 'unknown_count';
+
+type StructurePercentKey =
+  | 'commercial_percent'
+  | 'informational_percent'
+  | 'application_percent'
+  | 'search_percent'
+  | 'documents_percent'
+  | 'video_percent'
+  | 'faq_percent'
+  | 'service_percent'
+  | 'unknown_percent';
 
 type RowConfig = {
   label: string;
@@ -317,6 +353,23 @@ function renderCountPercent(count: number | null | undefined, percent: number | 
   );
 }
 
+function createCountPercentRow(label: string, countKey: StructureCountKey, percentKey: StructurePercentKey): RowConfig {
+  return {
+    label,
+    getValue: (site) => site.metrics.structure[countKey],
+    render: (site) => renderCountPercent(site.metrics.structure[countKey], site.metrics.structure[percentKey]),
+    compare: (own, current) =>
+      compareNumbers(own.metrics.structure[countKey], current.metrics.structure[countKey], 'higher'),
+  };
+}
+
+function hasAnyStructureValue(sites: CompareSiteResult[], key: StructureCountKey) {
+  return sites.some((site) => {
+    const value = site.metrics.structure[key];
+    return value !== null && value !== undefined && value > 0;
+  });
+}
+
 function boolLabel(value: boolean | null | undefined, yes = '✅', no = '❌') {
   if (value === null || value === undefined) return '—';
   return value ? yes : no;
@@ -478,6 +531,56 @@ export default function ComparePage() {
   const orderedSites = useMemo(() => sites, [sites]);
   const ownResult = orderedSites[0] || null;
   const competitorResults = orderedSites.slice(1);
+  const compareSections = useMemo(() => {
+    if (!orderedSites.length) return SECTION_ROWS;
+
+    const baseSections = SECTION_ROWS.filter((_, index) => index !== 1);
+    const structureRows: RowConfig[] = [
+      {
+        label: 'Страниц в sitemap',
+        getValue: (site) => site.metrics.structure.sitemap_total,
+        render: (site) => formatNumber(site.metrics.structure.sitemap_total),
+        compare: (own, current) =>
+          compareNumbers(own.metrics.structure.sitemap_total, current.metrics.structure.sitemap_total, 'higher'),
+      },
+      createCountPercentRow('Коммерческих', 'commercial_count', 'commercial_percent'),
+      createCountPercentRow('Информационных', 'informational_count', 'informational_percent'),
+    ];
+
+    const optionalRows: Array<[string, StructureCountKey, StructurePercentKey]> = [
+      ['Приложение', 'application_count', 'application_percent'],
+      ['Поиск', 'search_count', 'search_percent'],
+      ['Документы', 'documents_count', 'documents_percent'],
+      ['Видео/вебинары', 'video_count', 'video_percent'],
+      ['FAQ', 'faq_count', 'faq_percent'],
+      ['Служебных', 'service_count', 'service_percent'],
+      ['Не определено', 'unknown_count', 'unknown_percent'],
+    ];
+
+    for (const [label, countKey, percentKey] of optionalRows) {
+      if (hasAnyStructureValue(orderedSites, countKey)) {
+        structureRows.push(createCountPercentRow(label, countKey, percentKey));
+      }
+    }
+
+    structureRows.push({
+      label: 'Коммерч. сигналы',
+      getValue: (site) => site.metrics.structure.commercial_signals_found,
+      render: (site) =>
+        site.metrics.structure.commercial_signals_found !== null &&
+        site.metrics.structure.commercial_signals_total !== null
+          ? `${site.metrics.structure.commercial_signals_found}/${site.metrics.structure.commercial_signals_total}`
+          : '—',
+      compare: (own, current) =>
+        compareNumbers(
+          own.metrics.structure.commercial_signals_found,
+          current.metrics.structure.commercial_signals_found,
+          'higher'
+        ),
+    });
+
+    return [baseSections[0], { title: 'Структура', rows: structureRows }, ...baseSections.slice(1)];
+  }, [orderedSites]);
 
   const onCompare = async () => {
     const normalizedOwn = normalizeSiteInput(ownSite);
@@ -680,7 +783,7 @@ export default function ComparePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {SECTION_ROWS.map((section) => (
+                    {compareSections.map((section) => (
                       section.rows.map((row, rowIndex) => (
                         <tr key={`${section.title}-${row.label}`}>
                           {rowIndex === 0 ? (

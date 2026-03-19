@@ -2,8 +2,16 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
-const REQUEST_TIMEOUT_MS = 90_000;
+const REQUEST_TIMEOUT_MS = 180_000;
 const INTERNAL_COMPARE_ORIGIN = (process.env.INTERNAL_COMPARE_ORIGIN || '').replace(/\/+$/, '');
+const CHECK_TIMEOUT_MS = {
+  siteProfile: 120_000,
+  speed: 135_000,
+  ssr: 60_000,
+  index: 60_000,
+  llm: 120_000,
+  subdomains: 75_000,
+} as const;
 
 type SiteProfileResponse = {
   ok: boolean;
@@ -18,6 +26,13 @@ type SiteProfileResponse = {
     total_urls: number | null;
     commercial: { count: number | null; percent: number | null };
     informational: { count: number | null; percent: number | null };
+    application: { count: number | null; percent: number | null };
+    search: { count: number | null; percent: number | null };
+    documents: { count: number | null; percent: number | null };
+    video: { count: number | null; percent: number | null };
+    faq: { count: number | null; percent: number | null };
+    service: { count: number | null; percent: number | null };
+    unknown: { count: number | null; percent: number | null };
     yandex_iks: string;
   };
   commerce: {
@@ -122,6 +137,20 @@ type CompareSiteResponse = {
       commercial_percent: number | null;
       informational_count: number | null;
       informational_percent: number | null;
+      application_count: number | null;
+      application_percent: number | null;
+      search_count: number | null;
+      search_percent: number | null;
+      documents_count: number | null;
+      documents_percent: number | null;
+      video_count: number | null;
+      video_percent: number | null;
+      faq_count: number | null;
+      faq_percent: number | null;
+      service_count: number | null;
+      service_percent: number | null;
+      unknown_count: number | null;
+      unknown_percent: number | null;
       commercial_signals_found: number | null;
       commercial_signals_total: number | null;
     };
@@ -198,13 +227,23 @@ function getInternalOrigins(req: Request) {
   );
 }
 
-async function postJson<T>(origins: string[], path: string, body: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T | null> {
+function isRetryableStatus(status: number) {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+async function postJson<T>(
+  origins: string[],
+  path: string,
+  body: unknown,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+  retries = 3
+): Promise<T | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     for (const origin of origins) {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < retries; attempt += 1) {
         try {
           const response = await fetch(new URL(path, origin), {
             method: 'POST',
@@ -217,8 +256,8 @@ async function postJson<T>(origins: string[], path: string, body: unknown, timeo
             signal: controller.signal,
           });
 
-          if (response.status === 429 && attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1200));
+          if (isRetryableStatus(response.status) && attempt < retries - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1200 * (attempt + 1)));
             continue;
           }
 
@@ -226,11 +265,20 @@ async function postJson<T>(origins: string[], path: string, body: unknown, timeo
           if (!text) continue;
 
           try {
-            return JSON.parse(text) as T;
+            const parsed = JSON.parse(text) as T & { ok?: boolean };
+            if (parsed && parsed.ok === false && attempt < retries - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 1200 * (attempt + 1)));
+              continue;
+            }
+
+            return parsed as T;
           } catch {
             continue;
           }
         } catch {
+          if (attempt < retries - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1200 * (attempt + 1)));
+          }
           continue;
         }
       }
@@ -256,12 +304,12 @@ export async function POST(req: Request) {
 
     const [siteProfileResult, speedResult, ssrResult, indexResult, llmResult, subdomainResult] =
       await Promise.allSettled([
-        postJson<SiteProfileResponse>(origins, '/api/site-profile', { url: siteUrl, phase: 'full' }),
-        postJson<SpeedCheckResponse>(origins, '/api/speed-check', { url: siteUrl, phase: 'full' }),
-        postJson<SsrCheckResponse>(origins, '/api/ssr-check', { url: siteUrl }),
-        postJson<IndexCheckResponse>(origins, '/api/index-check', { url: siteUrl }),
-        postJson<LlmCheckResponse>(origins, '/api/llm-check', { url: siteUrl }),
-        postJson<SubdomainCheckResponse>(origins, '/api/subdomain-check', { domain }),
+        postJson<SiteProfileResponse>(origins, '/api/site-profile', { url: siteUrl, phase: 'full' }, CHECK_TIMEOUT_MS.siteProfile),
+        postJson<SpeedCheckResponse>(origins, '/api/speed-check', { url: siteUrl, phase: 'full' }, CHECK_TIMEOUT_MS.speed),
+        postJson<SsrCheckResponse>(origins, '/api/ssr-check', { url: siteUrl }, CHECK_TIMEOUT_MS.ssr),
+        postJson<IndexCheckResponse>(origins, '/api/index-check', { url: siteUrl }, CHECK_TIMEOUT_MS.index),
+        postJson<LlmCheckResponse>(origins, '/api/llm-check', { url: siteUrl }, CHECK_TIMEOUT_MS.llm),
+        postJson<SubdomainCheckResponse>(origins, '/api/subdomain-check', { domain }, CHECK_TIMEOUT_MS.subdomains),
       ]);
 
     const errors: string[] = [];
@@ -314,6 +362,20 @@ export async function POST(req: Request) {
           commercial_percent: siteProfile?.structure.commercial.percent ?? null,
           informational_count: siteProfile?.structure.informational.count ?? null,
           informational_percent: siteProfile?.structure.informational.percent ?? null,
+          application_count: siteProfile?.structure.application.count ?? null,
+          application_percent: siteProfile?.structure.application.percent ?? null,
+          search_count: siteProfile?.structure.search.count ?? null,
+          search_percent: siteProfile?.structure.search.percent ?? null,
+          documents_count: siteProfile?.structure.documents.count ?? null,
+          documents_percent: siteProfile?.structure.documents.percent ?? null,
+          video_count: siteProfile?.structure.video.count ?? null,
+          video_percent: siteProfile?.structure.video.percent ?? null,
+          faq_count: siteProfile?.structure.faq.count ?? null,
+          faq_percent: siteProfile?.structure.faq.percent ?? null,
+          service_count: siteProfile?.structure.service.count ?? null,
+          service_percent: siteProfile?.structure.service.percent ?? null,
+          unknown_count: siteProfile?.structure.unknown.count ?? null,
+          unknown_percent: siteProfile?.structure.unknown.percent ?? null,
           commercial_signals_found: commerceFound,
           commercial_signals_total: commerceTotal,
         },
