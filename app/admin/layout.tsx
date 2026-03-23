@@ -8,10 +8,10 @@ const links = [
   { href: '/admin', label: 'Обзор' },
   { href: '/admin/research', label: 'Семантика' },
   { href: '/admin/content-plan', label: 'Контент-план' },
-  { href: '/admin/ssr', label: 'SSR' },
-  { href: '/admin/llm', label: 'LLM' },
-  { href: '/admin/index', label: 'Index' },
-  { href: '/admin/users', label: 'Users' },
+  { href: '/admin/ssr', label: 'SSR отчёт' },
+  { href: '/admin/llm', label: 'LLM отчёт' },
+  { href: '/admin/index', label: 'Index отчёт' },
+  { href: '/admin/users', label: 'Пользователи' },
 ];
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
