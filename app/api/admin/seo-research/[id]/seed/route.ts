@@ -5,7 +5,11 @@ import {
   insertQueries,
   updateSeoResearch,
 } from '@/lib/db/seo-research';
-import { extractResearchContext, generateSeedQueries } from '@/lib/semantic-research';
+import {
+  extractResearchContext,
+  generateSeedQueries,
+  type ResearchPageContext,
+} from '@/lib/semantic-research';
 import { jsonError, requireAdminApi } from '@/lib/admin-api';
 
 export const runtime = 'nodejs';
@@ -13,6 +17,33 @@ export const runtime = 'nodejs';
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
+
+function normalizeSeed(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildEmergencySeeds(context: ResearchPageContext) {
+  const basePhrases = [context.h1, context.title, context.description]
+    .map((item) => normalizeSeed(item || ''))
+    .filter((item) => item.length > 5)
+    .slice(0, 3);
+
+  const variants = new Set<string>();
+
+  for (const phrase of basePhrases) {
+    variants.add(phrase);
+    variants.add(`проверить ${phrase}`);
+    variants.add(`${phrase} seo`);
+    variants.add(`${phrase} googlebot`);
+    variants.add(`${phrase} чекер`);
+  }
+
+  return Array.from(variants).filter((item) => item.length > 5).slice(0, 20);
+}
 
 export async function POST(_request: Request, context: RouteContext) {
   const denied = await requireAdminApi();
@@ -39,7 +70,26 @@ export async function POST(_request: Request, context: RouteContext) {
           }
         : await extractResearchContext(research.url);
 
-    const seeds = await generateSeedQueries(pageContext);
+    let seeds;
+    try {
+      seeds = await generateSeedQueries(pageContext);
+    } catch (error) {
+      console.error('admin seed generation fallback triggered', error);
+      seeds = {
+        queries: buildEmergencySeeds(pageContext),
+        raw: null,
+        source: 'fallback' as const,
+      };
+    }
+
+    if (!seeds.queries.length) {
+      seeds = {
+        queries: buildEmergencySeeds(pageContext),
+        raw: null,
+        source: 'fallback' as const,
+      };
+    }
+
     await deleteQueriesByResearch(id, 'seed');
     await insertQueries(
       id,
@@ -63,6 +113,7 @@ export async function POST(_request: Request, context: RouteContext) {
     });
   } catch (error) {
     console.error('admin seed generation failed', error);
-    return jsonError('Не удалось сгенерировать seed-запросы', 500);
+    const details = error instanceof Error ? error.message : 'неизвестная ошибка';
+    return jsonError(`Не удалось сгенерировать seed-запросы: ${details}`, 500);
   }
 }
