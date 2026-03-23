@@ -35,6 +35,7 @@ export default async function AdminResearchDetailPage({ params }: PageProps) {
 
   return (
     <AdminResearchDetail
+      wordstatEnabled={Boolean(process.env.WORDSTAT_TOKEN)}
       initialData={{
         research,
         queries,

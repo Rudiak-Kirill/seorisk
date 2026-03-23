@@ -89,6 +89,7 @@ type DetailPayload = {
 
 type Props = {
   initialData: DetailPayload;
+  wordstatEnabled: boolean;
 };
 
 const DESTINATION_COLUMNS = [
@@ -226,7 +227,7 @@ function DestinationColumn({
   );
 }
 
-export default function AdminResearchDetail({ initialData }: Props) {
+export default function AdminResearchDetail({ initialData, wordstatEnabled }: Props) {
   const [data, setData] = useState(initialData);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -234,6 +235,11 @@ export default function AdminResearchDetail({ initialData }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [minRelevance, setMinRelevance] = useState(1);
+  const [wordstatInfo, setWordstatInfo] = useState(
+    wordstatEnabled
+      ? 'Использован безопасный режим: 20 seed × 2 источника'
+      : 'Wordstat не подключён'
+  );
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const suggestionsById = useMemo(
@@ -262,11 +268,22 @@ export default function AdminResearchDetail({ initialData }: Props) {
   const seedCount = data.queries.filter((item) => item.source === 'seed').length;
   const expandedCount = data.queries.filter((item) => item.source !== 'seed').length;
 
+  async function readApiPayload<T extends Record<string, unknown>>(response: Response) {
+    const text = await response.text();
+    if (!text) return {} as T;
+
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new Error(`Сервер вернул невалидный JSON (HTTP ${response.status})`);
+    }
+  }
+
   async function reload() {
     const response = await fetch(`/api/admin/seo-research/${data.research.id}`, {
       cache: 'no-store',
     });
-    const payload = (await response.json()) as DetailPayload & { ok?: boolean; error?: string };
+    const payload = await readApiPayload<DetailPayload & { ok?: boolean; error?: string }>(response);
     if (!response.ok || !payload.ok) {
       throw new Error(payload.error || 'Не удалось обновить данные');
     }
@@ -332,7 +349,7 @@ export default function AdminResearchDetail({ initialData }: Props) {
         })),
       }),
     });
-    const payload = (await response.json()) as { ok?: boolean; error?: string };
+    const payload = await readApiPayload<{ ok?: boolean; error?: string }>(response);
     if (!response.ok || !payload.ok) {
       throw new Error(payload.error || 'Не удалось сохранить');
     }
@@ -394,7 +411,7 @@ export default function AdminResearchDetail({ initialData }: Props) {
                 const response = await fetch(`/api/admin/seo-research/${data.research.id}/context`, {
                   method: 'POST',
                 });
-                const payload = (await response.json()) as { ok?: boolean; error?: string };
+                const payload = await readApiPayload<{ ok?: boolean; error?: string }>(response);
                 if (!response.ok || !payload.ok) throw new Error(payload.error || 'Ошибка извлечения');
               }),
           },
@@ -408,7 +425,7 @@ export default function AdminResearchDetail({ initialData }: Props) {
                 const response = await fetch(`/api/admin/seo-research/${data.research.id}/seed`, {
                   method: 'POST',
                 });
-                const payload = (await response.json()) as { ok?: boolean; error?: string };
+                const payload = await readApiPayload<{ ok?: boolean; error?: string }>(response);
                 if (!response.ok || !payload.ok) throw new Error(payload.error || 'Ошибка генерации seed');
               }),
           },
@@ -422,8 +439,14 @@ export default function AdminResearchDetail({ initialData }: Props) {
                 const response = await fetch(`/api/admin/seo-research/${data.research.id}/wordstat`, {
                   method: 'POST',
                 });
-                const payload = (await response.json()) as { ok?: boolean; error?: string };
+                const payload = await readApiPayload<{ ok?: boolean; error?: string; message?: string }>(response);
                 if (!response.ok || !payload.ok) throw new Error(payload.error || 'Ошибка Wordstat');
+                setWordstatInfo(
+                  payload.message ||
+                    (wordstatEnabled
+                      ? 'Использован безопасный режим: 20 seed × 2 источника'
+                      : 'Wordstat не подключён')
+                );
               }),
           },
           {
@@ -436,7 +459,7 @@ export default function AdminResearchDetail({ initialData }: Props) {
                 const response = await fetch(`/api/admin/seo-research/${data.research.id}/classify`, {
                   method: 'POST',
                 });
-                const payload = (await response.json()) as { ok?: boolean; error?: string };
+                const payload = await readApiPayload<{ ok?: boolean; error?: string }>(response);
                 if (!response.ok || !payload.ok) throw new Error(payload.error || 'Ошибка классификации');
               }),
           },
@@ -444,6 +467,9 @@ export default function AdminResearchDetail({ initialData }: Props) {
           <div key={card.key} className="rounded-3xl border border-gray-200 bg-white p-5">
             <h3 className="text-sm font-semibold text-gray-900">{card.title}</h3>
             <p className="mt-3 min-h-12 text-sm text-gray-600">{card.text}</p>
+            {card.key === 'wordstat' ? (
+              <p className="mt-2 text-xs text-gray-500">{wordstatInfo}</p>
+            ) : null}
             <button
               type="button"
               disabled={loadingAction === card.key}
@@ -572,7 +598,7 @@ export default function AdminResearchDetail({ initialData }: Props) {
                   const response = await fetch(`/api/admin/seo-research/${data.research.id}/clusters`, {
                     method: 'POST',
                   });
-                  const payload = (await response.json()) as { ok?: boolean; error?: string };
+                  const payload = await readApiPayload<{ ok?: boolean; error?: string }>(response);
                   if (!response.ok || !payload.ok) throw new Error(payload.error || 'Ошибка кластеризации');
                 })
               }

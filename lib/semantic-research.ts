@@ -9,6 +9,10 @@ const LLM_RELAY_SECRET = process.env.LLM_RELAY_SECRET || '';
 const WORDSTAT_TOKEN = process.env.WORDSTAT_TOKEN || '';
 const WORDSTAT_BASE_URL = 'https://api.wordstat.yandex.net';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const WORDSTAT_SEED_LIMIT = 20;
+const WORDSTAT_CONCURRENCY = 2;
+const WORDSTAT_DELAY_MS = 400;
+const WORDSTAT_RETRY_DELAYS_MS = [2000, 5000] as const;
 
 const STOP_WORDS = [
   'скачать',
@@ -418,6 +422,10 @@ function chunk<T>(values: T[], size: number) {
   return result;
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function runWithConcurrency<T, R>(
   values: T[],
   limit: number,
@@ -478,49 +486,97 @@ function extractWordstatItems(raw: unknown): Array<{ query: string; frequency: n
   return items;
 }
 
-async function callWordstat(path: string, payload: Record<string, unknown>) {
-  if (!WORDSTAT_TOKEN) return [];
+type WordstatCallResult = {
+  items: Array<{ query: string; frequency: number }>;
+  quotaLimited: boolean;
+  authError: boolean;
+};
 
-  try {
-    const response = await fetch(`${WORDSTAT_BASE_URL}${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${WORDSTAT_TOKEN}`,
-      },
-      body: JSON.stringify(payload),
-      cache: 'no-store',
-    });
-
-    if (!response.ok) return [];
-    const json = (await response.json()) as unknown;
-    return extractWordstatItems(json);
-  } catch {
-    return [];
+async function callWordstat(path: string, payload: Record<string, unknown>): Promise<WordstatCallResult> {
+  if (!WORDSTAT_TOKEN) {
+    return { items: [], quotaLimited: false, authError: false };
   }
+
+  let quotaLimited = false;
+
+  for (let attempt = 0; attempt <= WORDSTAT_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await fetch(`${WORDSTAT_BASE_URL}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${WORDSTAT_TOKEN}`,
+        },
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        return { items: [], quotaLimited: false, authError: true };
+      }
+
+      if (response.status === 429 || response.status === 503) {
+        quotaLimited = true;
+        if (attempt < WORDSTAT_RETRY_DELAYS_MS.length) {
+          await delay(WORDSTAT_RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+        return { items: [], quotaLimited: true, authError: false };
+      }
+
+      if (!response.ok) {
+        return { items: [], quotaLimited: false, authError: false };
+      }
+
+      const json = (await response.json()) as unknown;
+      return {
+        items: extractWordstatItems(json),
+        quotaLimited,
+        authError: false,
+      };
+    } catch {
+      return { items: [], quotaLimited, authError: false };
+    }
+  }
+
+  return { items: [], quotaLimited, authError: false };
 }
 
 export async function expandQueriesWithWordstat(seedQueries: string[]) {
   if (!WORDSTAT_TOKEN || !seedQueries.length) {
-    return { items: [] as Array<{ query: string; frequency: number; source: 'wordstat' | 'association' }> };
+    return {
+      items: [] as Array<{ query: string; frequency: number; source: 'wordstat' | 'association' }>,
+      status: WORDSTAT_TOKEN ? 'ok' : 'token_missing',
+      processedSeeds: 0,
+      seedLimit: WORDSTAT_SEED_LIMIT,
+      sourceCount: 2,
+    };
   }
 
-  const limitedSeeds = seedQueries.slice(0, 100);
-  const results = await runWithConcurrency(limitedSeeds, 5, async (seed) => {
+  const limitedSeeds = seedQueries.slice(0, WORDSTAT_SEED_LIMIT);
+  let quotaLimited = false;
+  let authError = false;
+
+  const results = await runWithConcurrency(limitedSeeds, WORDSTAT_CONCURRENCY, async (seed) => {
     const basePayload = {
       query: seed,
       regions: [],
       limit: 50,
     };
 
-    const [topRequests, associations] = await Promise.all([
-      callWordstat('/v1/topRequests', basePayload),
-      callWordstat('/v1/associations', basePayload),
-    ]);
+    const topRequests = await callWordstat('/v1/topRequests', basePayload);
+    quotaLimited = quotaLimited || topRequests.quotaLimited;
+    authError = authError || topRequests.authError;
+
+    await delay(WORDSTAT_DELAY_MS);
+
+    const associations = await callWordstat('/v1/associations', basePayload);
+    quotaLimited = quotaLimited || associations.quotaLimited;
+    authError = authError || associations.authError;
 
     return {
-      topRequests: topRequests.map((item) => ({ ...item, source: 'wordstat' as const })),
-      associations: associations.map((item) => ({ ...item, source: 'association' as const })),
+      topRequests: topRequests.items.map((item) => ({ ...item, source: 'wordstat' as const })),
+      associations: associations.items.map((item) => ({ ...item, source: 'association' as const })),
     };
   });
 
@@ -535,7 +591,13 @@ export async function expandQueriesWithWordstat(seedQueries: string[]) {
     }
   }
 
-  return { items: Array.from(deduped.values()) };
+  return {
+    items: Array.from(deduped.values()),
+    status: authError ? 'auth_error' : quotaLimited ? 'quota_limited' : 'ok',
+    processedSeeds: limitedSeeds.length,
+    seedLimit: WORDSTAT_SEED_LIMIT,
+    sourceCount: 2,
+  };
 }
 
 export function buildCleanupSuggestions(queryRows: Array<{ id: string; query: string; frequency: number }>) {
