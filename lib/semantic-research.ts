@@ -321,50 +321,166 @@ async function callRelayJson<T>(path: string, payload: Record<string, unknown>):
   }
 }
 
-export async function generateSeedQueries(context: ResearchPageContext): Promise<SeedGenerationResult> {
-  const relayResult = await callRelayJson<{ queries?: string[]; raw?: unknown }>(
-    '/api/semantic/seeds',
-    {
-      title: context.title,
-      h1: context.h1,
-      description: context.description,
-      faq: context.faq,
-      text_excerpt: context.textExcerpt,
-    }
-  );
+const TOOL_SEED_PRESETS: Record<string, string[]> = {
+  'subdomain-check': [
+    'проверить поддомены сайта',
+    'найти поддомены сайта',
+    'все поддомены домена',
+    'список поддоменов сайта',
+    'проверка поддоменов сайта',
+    'dev test stage поддомены',
+    'открытые тестовые поддомены',
+    'региональные поддомены сайта',
+    'robots txt на поддомене',
+    'редиректы между поддоменами',
+    'дубли контента на поддоменах',
+    'поддомен открыт для индексации',
+  ],
+  'ssr-check': [
+    'проверить рендеринг сайта',
+    'как googlebot видит страницу',
+    'react сайт не индексируется',
+    'next js seo проверка',
+    'csr проблемы индексации',
+    'бот не видит контент сайта',
+  ],
+  'llm-check': [
+    'доступна ли страница для gptbot',
+    'проверить gptbot',
+    'страница закрыта для ai ботов',
+    'как ai бот видит страницу',
+    'доступность сайта для chatgpt',
+  ],
+  'index-check': [
+    'проверить индексацию страницы',
+    'страница закрыта от индексации',
+    'robots txt блокирует страницу',
+    'canonical настроен неправильно',
+    'почему страница не индексируется',
+  ],
+  'speed-check': [
+    'проверить скорость сайта',
+    'скорость загрузки страницы',
+    'низкий pagespeed mobile',
+    'медленный сайт на мобильных',
+    'ttfb сайта проверить',
+  ],
+  'site-profile': [
+    'профиль сайта для seo',
+    'структура sitemap сайта',
+    'тип сайта определить',
+    'икс сайта проверить',
+    'cms сайта определить',
+  ],
+  'content-check': [
+    'проверка контента страницы',
+    'контент чек страницы',
+    'проверить страницу товара seo',
+    'проверить статью на seo ошибки',
+    'аудит контента страницы',
+  ],
+  'ru-access-check': [
+    'проверить доступность сайта из рф',
+    'сайт заблокирован в россии',
+    'проверить реестр ркн',
+    'сайт недоступен из россии',
+    'доступ к сайту из рф',
+  ],
+  compare: [
+    'сравнить сайт с конкурентами',
+    'сравнение сайта с конкурентами',
+    'seo сравнение конкурентов',
+    'сравнить показатели сайта',
+    'анализ конкурентов сайта',
+  ],
+};
 
-  if (relayResult?.queries?.length) {
-    return {
-      queries: dedupeQueries(relayResult.queries),
-      raw: relayResult.raw || relayResult,
-      source: 'relay',
-    };
+function getToolSlug(context: ResearchPageContext) {
+  const candidates = [context.url, context.finalUrl];
+
+  for (const candidate of candidates) {
+    try {
+      const pathname = new URL(candidate).pathname;
+      const match = pathname.match(/\/tools\/([^/]+)/i);
+      if (match?.[1]) return match[1].toLowerCase();
+    } catch {
+      continue;
+    }
   }
 
-  return {
-    queries: buildFallbackSeeds(context),
-    raw: null,
-    source: 'fallback',
-  };
+  return '';
 }
 
-function buildFallbackSeeds(context: ResearchPageContext) {
-  const phrases = new Set<string>();
-  const title = context.title.toLowerCase();
-  const h1 = context.h1.toLowerCase();
-  const desc = context.description.toLowerCase();
-  const excerpt = context.textExcerpt.toLowerCase();
-  const base = [title, h1, desc, ...context.faq.map((item) => item.question.toLowerCase())]
-    .join(' ')
-    .replace(/[^\p{L}\p{N}\s-]+/gu, ' ');
+function normalizeSeedPhrase(value: string) {
+  return normalizeWhitespace(
+    value
+      .toLowerCase()
+      .replace(/[–—/]+/g, ' ')
+      .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
+      .replace(/\bseorisk\b/giu, ' ')
+      .replace(/\b(?:site|tool|checker|check)\b/giu, ' ')
+      .replace(/\bru\b/giu, ' ')
+      .replace(/^проверьте\s+/u, 'проверить ')
+      .replace(/^найдите\s+/u, 'найти ')
+      .replace(/^проверить\s+проверить\s+/u, 'проверить ')
+  );
+}
 
-  const symptomRoots = extractNgrams(base, 2, 4).slice(0, 35);
-  symptomRoots.forEach((phrase) => {
-    phrases.add(phrase);
-    phrases.add(`проверить ${phrase}`);
-    phrases.add(`${phrase} seo`);
-    phrases.add(`${phrase} googlebot`);
-  });
+function isUsefulSeedPhrase(value: string) {
+  const words = value.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 6) return false;
+  if (/^(?:найти|проверить|проверка)$/u.test(value)) return false;
+  if (/\b(?:subdomain|site|tool)\b/i.test(value)) return false;
+  if (/(?:^|\s)(?:найти|проверить)$/u.test(value)) return false;
+  if (/^проверить\s+проверка(?:\s|$)/u.test(value)) return false;
+  if (/(?:^|\s)(?:сайта|страницы)\s+(?:найти|проверить)(?:\s|$)/u.test(value)) return false;
+  if (/(?:^|\s)проверить\s+поддоменов(?:\s|$)/u.test(value)) return false;
+  return true;
+}
+
+export function buildFallbackSeedQueries(context: ResearchPageContext) {
+  const phrases = new Set<string>();
+  const excerpt = context.textExcerpt.toLowerCase();
+  const slug = getToolSlug(context);
+
+  for (const preset of TOOL_SEED_PRESETS[slug] || []) {
+    const normalized = normalizeSeedPhrase(preset);
+    if (isUsefulSeedPhrase(normalized)) phrases.add(normalized);
+  }
+
+  const titleRoot = normalizeSeedPhrase(context.title.split('|')[0] || '');
+  const h1Root = normalizeSeedPhrase(context.h1 || '');
+  const descriptionFragments = context.description
+    .split(/[.!?;,:]/)
+    .map((item) => normalizeSeedPhrase(item))
+    .filter(Boolean);
+  const faqRoots = context.faq.map((item) => normalizeSeedPhrase(item.question));
+
+  const base = [titleRoot, h1Root, ...descriptionFragments, ...faqRoots]
+    .filter(Boolean)
+    .join(' ');
+
+  if (!TOOL_SEED_PRESETS[slug]?.length) {
+    for (const phrase of extractNgrams(base, 2, 4).slice(0, 30)) {
+      const normalized = normalizeSeedPhrase(phrase);
+      if (!isUsefulSeedPhrase(normalized)) continue;
+      phrases.add(normalized);
+
+      const words = normalized.split(/\s+/).filter(Boolean);
+      if (words.length <= 4 && !/^провер(ить|ка)(?:\s|$)/u.test(normalized)) {
+        phrases.add(`проверить ${normalized}`);
+      }
+    }
+  } else {
+    for (const phrase of [titleRoot, h1Root]) {
+      if (!isUsefulSeedPhrase(phrase)) continue;
+      phrases.add(phrase);
+      const words = phrase.split(/\s+/).filter(Boolean);
+      if (words.length <= 4 && !/^провер(ить|ка)(?:\s|$)/u.test(phrase)) {
+        phrases.add(`проверить ${phrase}`);
+      }
+    }
+  }
 
   if (/react|next\.?js|csr|ssr/i.test(excerpt)) {
     ['react индексация', 'next js seo', 'csr seo проблемы', 'проверка рендера сайта'].forEach(
@@ -382,7 +498,38 @@ function buildFallbackSeeds(context: ResearchPageContext) {
     ].forEach((item) => phrases.add(item));
   }
 
-  return dedupeQueries(Array.from(phrases).filter((item) => item.length > 6)).slice(0, 100);
+  return dedupeQueries(
+    Array.from(phrases).map(normalizeSeedPhrase).filter(isUsefulSeedPhrase)
+  ).slice(0, 60);
+}
+
+export async function generateSeedQueries(context: ResearchPageContext): Promise<SeedGenerationResult> {
+  const relayResult = await callRelayJson<{ queries?: string[]; raw?: unknown }>(
+    '/api/semantic/seeds',
+    {
+      title: context.title,
+      h1: context.h1,
+      description: context.description,
+      faq: context.faq,
+      text_excerpt: context.textExcerpt,
+    }
+  );
+
+  if (relayResult?.queries?.length) {
+    return {
+      queries: dedupeQueries(
+        relayResult.queries.map(normalizeSeedPhrase).filter(isUsefulSeedPhrase)
+      ),
+      raw: relayResult.raw || relayResult,
+      source: 'relay',
+    };
+  }
+
+  return {
+    queries: buildFallbackSeedQueries(context),
+    raw: null,
+    source: 'fallback',
+  };
 }
 
 function dedupeQueries(values: string[]) {
