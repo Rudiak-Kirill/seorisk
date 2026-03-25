@@ -267,6 +267,9 @@ export default function AdminResearchDetail({ initialData, wordstatEnabled }: Pr
 
   const seedCount = data.queries.filter((item) => item.source === 'seed').length;
   const expandedCount = data.queries.filter((item) => item.source !== 'seed').length;
+  const seedWithFrequencyCount = data.queries.filter(
+    (item) => item.source === 'seed' && (item.frequency || 0) > 0
+  ).length;
 
   async function readApiPayload<T extends Record<string, unknown>>(response: Response) {
     const text = await response.text();
@@ -432,17 +435,32 @@ export default function AdminResearchDetail({ initialData, wordstatEnabled }: Pr
           {
             key: 'wordstat',
             title: '3. Wordstat',
-            text: `${expandedCount} расширенных запросов`,
+            text: `${expandedCount} расширенных запросов · ${seedWithFrequencyCount} seed с частотностью`,
             action: 'Расширить',
             onClick: () =>
               runAction('wordstat', async () => {
                 const response = await fetch(`/api/admin/seo-research/${data.research.id}/wordstat`, {
                   method: 'POST',
                 });
-                const payload = await readApiPayload<{ ok?: boolean; error?: string; message?: string }>(response);
+                const payload = await readApiPayload<{
+                  ok?: boolean;
+                  error?: string;
+                  message?: string;
+                  updatedSeedFrequencies?: number;
+                }>(response);
                 if (!response.ok || !payload.ok) throw new Error(payload.error || 'Ошибка Wordstat');
                 setWordstatInfo(
-                  payload.message ||
+                  [
+                    payload.message ||
+                      (wordstatEnabled
+                        ? 'Использован безопасный режим: 20 seed × 2 источника'
+                        : 'Wordstat не подключён'),
+                    typeof payload.updatedSeedFrequencies === 'number'
+                      ? `Обновлено частотностей seed: ${payload.updatedSeedFrequencies}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') ||
                     (wordstatEnabled
                       ? 'Использован безопасный режим: 20 seed × 2 источника'
                       : 'Wordstat не подключён')
