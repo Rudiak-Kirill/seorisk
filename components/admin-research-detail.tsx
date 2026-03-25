@@ -237,7 +237,7 @@ export default function AdminResearchDetail({ initialData, wordstatEnabled }: Pr
   const [minRelevance, setMinRelevance] = useState(1);
   const [wordstatInfo, setWordstatInfo] = useState(
     wordstatEnabled
-      ? 'Использован безопасный режим: 20 seed × 2 источника'
+      ? 'Использован безопасный режим: 20 seed → популярные запросы по очереди'
       : 'Wordstat не подключён'
   );
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -453,7 +453,7 @@ export default function AdminResearchDetail({ initialData, wordstatEnabled }: Pr
                   [
                     payload.message ||
                       (wordstatEnabled
-                        ? 'Использован безопасный режим: 20 seed × 2 источника'
+                        ? 'Использован безопасный режим: 20 seed → популярные запросы по очереди'
                         : 'Wordstat не подключён'),
                     typeof payload.updatedSeedFrequencies === 'number'
                       ? `Обновлено частотностей seed: ${payload.updatedSeedFrequencies}`
@@ -462,7 +462,7 @@ export default function AdminResearchDetail({ initialData, wordstatEnabled }: Pr
                     .filter(Boolean)
                     .join(' · ') ||
                     (wordstatEnabled
-                      ? 'Использован безопасный режим: 20 seed × 2 источника'
+                      ? 'Использован безопасный режим: 20 seed → популярные запросы по очереди'
                       : 'Wordstat не подключён')
                 );
               }),

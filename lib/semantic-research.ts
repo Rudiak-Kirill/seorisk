@@ -10,7 +10,7 @@ const WORDSTAT_TOKEN = process.env.WORDSTAT_TOKEN || '';
 const WORDSTAT_BASE_URL = 'https://api.wordstat.yandex.net';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const WORDSTAT_SEED_LIMIT = 20;
-const WORDSTAT_CONCURRENCY = 2;
+const WORDSTAT_CONCURRENCY = 1;
 const WORDSTAT_DELAY_MS = 400;
 const WORDSTAT_RETRY_DELAYS_MS = [2000, 5000] as const;
 const WORDSTAT_REGION_IDS = [225] as const;
@@ -459,10 +459,32 @@ function normalizeSeedPhrase(value: string) {
   );
 }
 
+const GENERIC_SEED_TOKEN_STEMS = new Set([
+  'провер',
+  'найт',
+  'узнат',
+  'посмотр',
+  'спис',
+  'все',
+  'весь',
+  'сайт',
+  'страниц',
+  'главн',
+  'регион',
+  'региональ',
+  'открыт',
+]);
+
+function normalizeComparableToken(value: string) {
+  return normalizeSeedPhrase(value)
+    .replace(/(?:иями|ями|ами|ов|ев|ей|ий|ый|ой|ое|ее|ая|яя|ые|ие|ым|им|ом|ем|ую|юю|ых|их|ах|ях|ам|ям|ов|ев|а|я|ы|и|у|ю|е|о)$/u, '')
+    .replace(/ь$/u, '');
+}
+
 function extractComparableTokens(value: string) {
   return normalizeSeedPhrase(value)
     .split(/\s+/)
-    .map((item) => item.trim())
+    .map((item) => normalizeComparableToken(item.trim()))
     .filter(
       (item) =>
         item.length >= 4 &&
@@ -471,8 +493,14 @@ function extractComparableTokens(value: string) {
     );
 }
 
+function extractSeedAnchorTokens(value: string) {
+  const tokens = extractComparableTokens(value);
+  const anchors = tokens.filter((item) => !GENERIC_SEED_TOKEN_STEMS.has(item));
+  return anchors.length ? anchors : tokens;
+}
+
 function hasTokenOverlap(seed: string, candidate: string) {
-  const seedTokens = extractComparableTokens(seed);
+  const seedTokens = extractSeedAnchorTokens(seed);
   const candidateTokens = extractComparableTokens(candidate);
   if (!seedTokens.length || !candidateTokens.length) return false;
 
@@ -813,12 +841,12 @@ async function callWordstat(phrase: string): Promise<WordstatCallResult> {
 export async function expandQueriesWithWordstat(seedQueries: string[]) {
   if (!WORDSTAT_TOKEN || !seedQueries.length) {
     return {
-      items: [] as Array<{ query: string; frequency: number; source: 'wordstat' | 'association' }>,
+      items: [] as Array<{ query: string; frequency: number; source: 'wordstat' }>,
       seedFrequencies: [] as Array<{ query: string; frequency: number }>,
       status: WORDSTAT_TOKEN ? 'ok' : 'token_missing',
       processedSeeds: 0,
       seedLimit: WORDSTAT_SEED_LIMIT,
-      sourceCount: 2,
+      sourceCount: 1,
     };
   }
 
@@ -840,21 +868,21 @@ export async function expandQueriesWithWordstat(seedQueries: string[]) {
             }
           : null,
       topRequests: wordstat.topRequests
-        .filter((item) => hasTokenOverlap(seed, item.query))
+        .filter(
+          (item) =>
+            normalizeSeedPhrase(item.query) !== normalizeSeedPhrase(seed) && hasTokenOverlap(seed, item.query)
+        )
         .map((item) => ({ ...item, source: 'wordstat' as const })),
-      associations: wordstat.associations
-        .filter((item) => hasTokenOverlap(seed, item.query))
-        .map((item) => ({ ...item, source: 'association' as const })),
     };
   });
 
-  const deduped = new Map<string, { query: string; frequency: number; source: 'wordstat' | 'association' }>();
+  const deduped = new Map<string, { query: string; frequency: number; source: 'wordstat' }>();
   const seedFrequencies = new Map<string, { query: string; frequency: number }>();
   for (const result of results) {
     if (result.seedFrequency) {
       seedFrequencies.set(result.seedFrequency.query.toLowerCase(), result.seedFrequency);
     }
-    for (const item of [...result.topRequests, ...result.associations]) {
+    for (const item of result.topRequests) {
       const key = item.query.toLowerCase();
       const current = deduped.get(key);
       if (!current || item.frequency > current.frequency) {
@@ -869,7 +897,7 @@ export async function expandQueriesWithWordstat(seedQueries: string[]) {
     status: authError ? 'auth_error' : quotaLimited ? 'quota_limited' : 'ok',
     processedSeeds: limitedSeeds.length,
     seedLimit: WORDSTAT_SEED_LIMIT,
-    sourceCount: 2,
+    sourceCount: 1,
   };
 }
 

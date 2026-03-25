@@ -70,8 +70,8 @@ export async function POST(_request: Request, context: RouteContext) {
       expansion.status === 'token_missing'
         ? 'Wordstat не подключён'
         : expansion.status === 'quota_limited'
-          ? `Лимит Wordstat исчерпан, часть запросов пропущена. Безопасный режим: ${expansion.seedLimit} seed × ${expansion.sourceCount} источника`
-          : `Использован безопасный режим: ${expansion.seedLimit} seed × ${expansion.sourceCount} источника`;
+          ? `Лимит Wordstat исчерпан, часть запросов пропущена. Безопасный режим: ${expansion.seedLimit} seed → популярные запросы по очереди`
+          : `Использован безопасный режим: ${expansion.seedLimit} seed → популярные запросы по очереди`;
 
     return NextResponse.json({
       ok: true,

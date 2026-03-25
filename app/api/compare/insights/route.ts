@@ -196,11 +196,25 @@ function addCandidate(target: InsightCandidate[], candidate: InsightCandidate) {
   }
 }
 
-function mergeInsights(primary: InsightItem[], secondary: InsightItem[] | undefined, limit: number) {
+function normalizeInsightItems(value: unknown): InsightItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      title: typeof item.title === 'string' ? item.title : '',
+      detail: typeof item.detail === 'string' ? item.detail : '',
+      action: typeof item.action === 'string' ? item.action : undefined,
+    }))
+    .filter((item) => item.title && item.detail);
+}
+
+function mergeInsights(primary: InsightItem[], secondary: unknown, limit: number) {
   const merged: InsightItem[] = [];
   const seen = new Set<string>();
+  const secondaryItems = normalizeInsightItems(secondary);
 
-  for (const item of [...primary, ...(secondary || [])]) {
+  for (const item of [...primary, ...secondaryItems]) {
     const key = `${item.title}::${item.detail}`;
     if (seen.has(key)) continue;
     seen.add(key);
