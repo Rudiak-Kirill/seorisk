@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { buildDefaultContentPlanBrief, parseTextareaList, type GenerationSettings } from '@/lib/content-plan-brief';
 
 type ContentPlanRow = {
   id: string;
@@ -12,6 +13,14 @@ type ContentPlanRow = {
   title: string;
   metaDescription: string | null;
   mainQuery: string;
+  secondaryQueries: string[];
+  generationSettings: GenerationSettings;
+  requiredBlocks: string[];
+  articleOutline: string[];
+  faqItems: string[];
+  schemaTypes: string[];
+  linkingHints: string[];
+  notesForLlm: string | null;
   articlePreview: string | null;
   plannedDate: string | null;
   status: string;
@@ -23,6 +32,21 @@ type ContentPlanRow = {
   updatedAt: string | Date;
   totalFrequency: number | null;
   researchUrl: string | null;
+};
+
+type BriefDraft = {
+  id: string;
+  title: string;
+  metaDescription: string;
+  mainQuery: string;
+  secondaryQueriesText: string;
+  requiredBlocksText: string;
+  articleOutlineText: string;
+  faqItemsText: string;
+  schemaTypesText: string;
+  linkingHintsText: string;
+  notesForLlm: string;
+  generationSettings: GenerationSettings;
 };
 
 type Props = {
@@ -50,16 +74,40 @@ function formatFrequency(value: number | null) {
   return `${new Intl.NumberFormat('ru-RU').format(value)}/мес`;
 }
 
+function listToTextarea(values: string[]) {
+  return values.join('\n');
+}
+
+function createBriefDraft(item: ContentPlanRow): BriefDraft {
+  return {
+    id: item.id,
+    title: item.title,
+    metaDescription: item.metaDescription || '',
+    mainQuery: item.mainQuery,
+    secondaryQueriesText: listToTextarea(item.secondaryQueries || []),
+    requiredBlocksText: listToTextarea(item.requiredBlocks || []),
+    articleOutlineText: listToTextarea(item.articleOutline || []),
+    faqItemsText: listToTextarea(item.faqItems || []),
+    schemaTypesText: listToTextarea(item.schemaTypes || []),
+    linkingHintsText: listToTextarea(item.linkingHints || []),
+    notesForLlm: item.notesForLlm || '',
+    generationSettings: { ...item.generationSettings },
+  };
+}
+
 export default function AdminContentPlanTable({ initialItems }: Props) {
   const [items, setItems] = useState(initialItems);
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [briefId, setBriefId] = useState<string | null>(null);
+  const [briefDraft, setBriefDraft] = useState<BriefDraft | null>(null);
   const [draft, setDraft] = useState<string>('');
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const activeItem = items.find((item) => item.id === activeId) || null;
+  const briefItem = items.find((item) => item.id === briefId) || null;
 
   const filtered = useMemo(() => {
     return items.filter((item) => {
@@ -101,6 +149,50 @@ export default function AdminContentPlanTable({ initialItems }: Props) {
     } finally {
       setLoadingId(null);
     }
+  }
+
+  function openBrief(item: ContentPlanRow) {
+    setBriefId(item.id);
+    setBriefDraft(createBriefDraft(item));
+  }
+
+  function applyPreset(preset: 'tool_page' | 'blog_article') {
+    if (!briefDraft || !briefItem) return;
+    const defaults = buildDefaultContentPlanBrief(preset, {
+      secondaryQueries: parseTextareaList(briefDraft.secondaryQueriesText),
+      faqItems: parseTextareaList(briefDraft.faqItemsText),
+      linkingHints: parseTextareaList(briefDraft.linkingHintsText),
+    });
+
+    setBriefDraft({
+      ...briefDraft,
+      requiredBlocksText: listToTextarea(defaults.requiredBlocks),
+      articleOutlineText: listToTextarea(defaults.articleOutline),
+      schemaTypesText: listToTextarea(defaults.schemaTypes),
+      generationSettings: { ...defaults.generationSettings, preset },
+    });
+  }
+
+  async function saveBrief() {
+    if (!briefDraft || !briefItem) return;
+
+    await runAction(briefDraft.id, async () => {
+      await patchRow(briefDraft.id, {
+        title: briefDraft.title,
+        metaDescription: briefDraft.metaDescription || null,
+        mainQuery: briefDraft.mainQuery,
+        secondaryQueries: parseTextareaList(briefDraft.secondaryQueriesText),
+        requiredBlocks: parseTextareaList(briefDraft.requiredBlocksText),
+        articleOutline: parseTextareaList(briefDraft.articleOutlineText),
+        faqItems: parseTextareaList(briefDraft.faqItemsText),
+        schemaTypes: parseTextareaList(briefDraft.schemaTypesText),
+        linkingHints: parseTextareaList(briefDraft.linkingHintsText),
+        notesForLlm: briefDraft.notesForLlm,
+        generationSettings: briefDraft.generationSettings,
+      });
+      setBriefId(null);
+      setBriefDraft(null);
+    });
   }
 
   return (
@@ -207,6 +299,13 @@ export default function AdminContentPlanTable({ initialItems }: Props) {
                       </button>
                       <button
                         type="button"
+                        onClick={() => openBrief(item)}
+                        className="rounded-full border border-gray-200 px-3 py-2 text-xs text-gray-700"
+                      >
+                        SEO brief
+                      </button>
+                      <button
+                        type="button"
                         onClick={() =>
                           runAction(item.id, async () => {
                             const response = await fetch(`/api/admin/content-plan/${item.id}/generate-article`, {
@@ -283,6 +382,274 @@ export default function AdminContentPlanTable({ initialItems }: Props) {
           </table>
         </div>
       </section>
+
+      {briefItem && briefDraft ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">SEO brief</h3>
+                <p className="mt-1 text-sm text-gray-500">{briefItem.targetUrl}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBriefId(null);
+                  setBriefDraft(null);
+                }}
+                className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-700"
+              >
+                Закрыть
+              </button>
+            </div>
+
+            <div className="grid max-h-[78vh] gap-0 overflow-y-auto lg:grid-cols-2">
+              <div className="space-y-4 border-r border-gray-200 p-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-gray-700">Заголовок</span>
+                    <input
+                      value={briefDraft.title}
+                      onChange={(event) => setBriefDraft({ ...briefDraft, title: event.target.value })}
+                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-800"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-gray-700">Главный запрос</span>
+                    <input
+                      value={briefDraft.mainQuery}
+                      onChange={(event) => setBriefDraft({ ...briefDraft, mainQuery: event.target.value })}
+                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-800"
+                    />
+                  </label>
+                </div>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-gray-700">Meta description</span>
+                  <textarea
+                    value={briefDraft.metaDescription}
+                    onChange={(event) => setBriefDraft({ ...briefDraft, metaDescription: event.target.value })}
+                    className="h-24 w-full rounded-2xl border border-gray-200 p-4 text-sm text-gray-800"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-gray-700">Вторичные запросы</span>
+                  <textarea
+                    value={briefDraft.secondaryQueriesText}
+                    onChange={(event) => setBriefDraft({ ...briefDraft, secondaryQueriesText: event.target.value })}
+                    className="h-28 w-full rounded-2xl border border-gray-200 p-4 text-sm text-gray-800"
+                    placeholder="По одному запросу на строку"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-gray-700">Обязательные блоки</span>
+                  <textarea
+                    value={briefDraft.requiredBlocksText}
+                    onChange={(event) => setBriefDraft({ ...briefDraft, requiredBlocksText: event.target.value })}
+                    className="h-28 w-full rounded-2xl border border-gray-200 p-4 text-sm text-gray-800"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-gray-700">Outline статьи</span>
+                  <textarea
+                    value={briefDraft.articleOutlineText}
+                    onChange={(event) => setBriefDraft({ ...briefDraft, articleOutlineText: event.target.value })}
+                    className="h-28 w-full rounded-2xl border border-gray-200 p-4 text-sm text-gray-800"
+                  />
+                </label>
+              </div>
+
+              <div className="space-y-4 p-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-gray-700">Пресет</span>
+                    <div className="flex gap-2">
+                      <select
+                        value={briefDraft.generationSettings.preset}
+                        onChange={(event) =>
+                          setBriefDraft({
+                            ...briefDraft,
+                            generationSettings: {
+                              ...briefDraft.generationSettings,
+                              preset: event.target.value as GenerationSettings['preset'],
+                            },
+                          })
+                        }
+                        className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-800"
+                      >
+                        <option value="tool_page">tool_page</option>
+                        <option value="blog_article">blog_article</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => applyPreset(briefDraft.generationSettings.preset)}
+                        className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-700"
+                      >
+                        Применить
+                      </button>
+                    </div>
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-gray-700">Тон</span>
+                    <select
+                      value={briefDraft.generationSettings.tone}
+                      onChange={(event) =>
+                        setBriefDraft({
+                          ...briefDraft,
+                          generationSettings: {
+                            ...briefDraft.generationSettings,
+                            tone: event.target.value as GenerationSettings['tone'],
+                          },
+                        })
+                      }
+                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-800"
+                    >
+                      <option value="expert">expert</option>
+                      <option value="practical">practical</option>
+                      <option value="business">business</option>
+                      <option value="simple">simple</option>
+                    </select>
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-gray-700">Цель</span>
+                    <select
+                      value={briefDraft.generationSettings.goal}
+                      onChange={(event) =>
+                        setBriefDraft({
+                          ...briefDraft,
+                          generationSettings: {
+                            ...briefDraft.generationSettings,
+                            goal: event.target.value as GenerationSettings['goal'],
+                          },
+                        })
+                      }
+                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-800"
+                    >
+                      <option value="ranking">ranking</option>
+                      <option value="leads">leads</option>
+                      <option value="explain">explain</option>
+                      <option value="compare">compare</option>
+                    </select>
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-gray-700">Schema</span>
+                    <textarea
+                      value={briefDraft.schemaTypesText}
+                      onChange={(event) => setBriefDraft({ ...briefDraft, schemaTypesText: event.target.value })}
+                      className="h-24 w-full rounded-2xl border border-gray-200 p-4 text-sm text-gray-800"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[
+                    ['includeFaq', 'FAQ'],
+                    ['includeTable', 'Таблицы'],
+                    ['includeLists', 'Списки'],
+                    ['includeExamples', 'Примеры'],
+                    ['includeCta', 'CTA'],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(briefDraft.generationSettings[key as keyof GenerationSettings])}
+                        onChange={(event) =>
+                          setBriefDraft({
+                            ...briefDraft,
+                            generationSettings: {
+                              ...briefDraft.generationSettings,
+                              [key]: event.target.checked,
+                            },
+                          })
+                        }
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-gray-700">Минимум слов</span>
+                    <input
+                      type="number"
+                      value={briefDraft.generationSettings.minWords}
+                      onChange={(event) =>
+                        setBriefDraft({
+                          ...briefDraft,
+                          generationSettings: {
+                            ...briefDraft.generationSettings,
+                            minWords: Number(event.target.value) || 0,
+                          },
+                        })
+                      }
+                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-800"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium text-gray-700">Максимум слов</span>
+                    <input
+                      type="number"
+                      value={briefDraft.generationSettings.maxWords}
+                      onChange={(event) =>
+                        setBriefDraft({
+                          ...briefDraft,
+                          generationSettings: {
+                            ...briefDraft.generationSettings,
+                            maxWords: Number(event.target.value) || 0,
+                          },
+                        })
+                      }
+                      className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm text-gray-800"
+                    />
+                  </label>
+                </div>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-gray-700">FAQ</span>
+                  <textarea
+                    value={briefDraft.faqItemsText}
+                    onChange={(event) => setBriefDraft({ ...briefDraft, faqItemsText: event.target.value })}
+                    className="h-24 w-full rounded-2xl border border-gray-200 p-4 text-sm text-gray-800"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-gray-700">Внутренние ссылки / подсказки</span>
+                  <textarea
+                    value={briefDraft.linkingHintsText}
+                    onChange={(event) => setBriefDraft({ ...briefDraft, linkingHintsText: event.target.value })}
+                    className="h-24 w-full rounded-2xl border border-gray-200 p-4 text-sm text-gray-800"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-gray-700">Примечания для генерации</span>
+                  <textarea
+                    value={briefDraft.notesForLlm}
+                    onChange={(event) => setBriefDraft({ ...briefDraft, notesForLlm: event.target.value })}
+                    className="h-32 w-full rounded-2xl border border-gray-200 p-4 text-sm text-gray-800"
+                    placeholder="Тон, ограничения, обязательные формулировки, запреты."
+                  />
+                </label>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={saveBrief}
+                    className="rounded-full bg-gray-900 px-4 py-2 text-sm font-medium text-white"
+                  >
+                    Сохранить brief
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {activeItem ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8">

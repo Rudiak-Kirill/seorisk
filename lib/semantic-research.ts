@@ -1,4 +1,5 @@
 import { URL } from 'node:url';
+import { buildDefaultContentPlanBrief, type ContentPlanBrief } from '@/lib/content-plan-brief';
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -122,6 +123,14 @@ export type ContentPlanDraft = {
   title: string;
   metaDescription: string;
   mainQuery: string;
+  secondaryQueries: string[];
+  generationSettings: ContentPlanBrief['generationSettings'];
+  requiredBlocks: string[];
+  articleOutline: string[];
+  faqItems: string[];
+  schemaTypes: string[];
+  linkingHints: string[];
+  notesForLlm: string;
 };
 
 type RelayArticleResponse = {
@@ -1108,10 +1117,16 @@ export function buildContentPlanDrafts(params: {
   researchId: string;
   researchUrl: string;
   toolMainQuery: string | null;
+  toolSecondaryQueries: string[];
   clusters: Array<{ id: string; mainQuery: string; totalFrequency: number }>;
+  clusterQueriesById: Record<string, string[]>;
 }) {
   const items: ContentPlanDraft[] = [];
   const toolQuery = params.toolMainQuery || 'seo инструмент';
+  const toolBrief = buildDefaultContentPlanBrief('tool_page', {
+    secondaryQueries: params.toolSecondaryQueries,
+    linkingHints: [params.researchUrl],
+  });
 
   items.push({
     clusterId: null,
@@ -1121,10 +1136,22 @@ export function buildContentPlanDrafts(params: {
     title: buildDraftTitle(toolQuery, 'tool_page'),
     metaDescription: buildDraftDescription(toolQuery, 'tool_page'),
     mainQuery: toolQuery,
+    secondaryQueries: toolBrief.secondaryQueries,
+    generationSettings: toolBrief.generationSettings,
+    requiredBlocks: toolBrief.requiredBlocks,
+    articleOutline: toolBrief.articleOutline,
+    faqItems: toolBrief.faqItems,
+    schemaTypes: toolBrief.schemaTypes,
+    linkingHints: toolBrief.linkingHints,
+    notesForLlm: toolBrief.notesForLlm,
   });
 
   for (const cluster of params.clusters) {
     const slug = slugifyQuery(cluster.mainQuery);
+    const blogBrief = buildDefaultContentPlanBrief('blog_article', {
+      secondaryQueries: params.clusterQueriesById[cluster.id] || [],
+      linkingHints: [params.researchUrl],
+    });
     items.push({
       clusterId: cluster.id,
       sourceUrl: params.researchUrl,
@@ -1133,6 +1160,14 @@ export function buildContentPlanDrafts(params: {
       title: buildDraftTitle(cluster.mainQuery, 'blog_article'),
       metaDescription: buildDraftDescription(cluster.mainQuery, 'blog_article'),
       mainQuery: cluster.mainQuery,
+      secondaryQueries: blogBrief.secondaryQueries,
+      generationSettings: blogBrief.generationSettings,
+      requiredBlocks: blogBrief.requiredBlocks,
+      articleOutline: blogBrief.articleOutline,
+      faqItems: blogBrief.faqItems,
+      schemaTypes: blogBrief.schemaTypes,
+      linkingHints: blogBrief.linkingHints,
+      notesForLlm: blogBrief.notesForLlm,
     });
   }
 
@@ -1145,11 +1180,25 @@ export async function generateArticleDraft(input: {
   metaDescription: string;
   sourceUrl: string;
   clusterQueries: string[];
+  secondaryQueries: string[];
+  generationSettings: ContentPlanBrief['generationSettings'];
+  requiredBlocks: string[];
+  articleOutline: string[];
+  faqItems: string[];
+  schemaTypes: string[];
+  linkingHints: string[];
+  notesForLlm: string;
 }) {
   const relayResult = await callRelayJson<RelayArticleResponse>('/api/semantic/article', input);
   if (relayResult?.article_markdown) {
     return relayResult;
   }
+
+  const sections = input.articleOutline.length ? input.articleOutline : input.requiredBlocks;
+  const faqSection =
+    input.generationSettings.includeFaq && input.faqItems.length
+      ? input.faqItems.map((item) => `- ${item}`).join('\n')
+      : '- Добавьте 3-5 вопросов и ответов по интенту статьи.';
 
   return {
     title: input.title,
@@ -1159,17 +1208,23 @@ export async function generateArticleDraft(input: {
       '',
       `Ключевой запрос: **${input.mainQuery}**`,
       '',
-      '## Что это',
-      `Кратко объясните, что пользователь ищет по запросу «${input.mainQuery}».`,
+      `Целевой тон: ${input.generationSettings.tone}. Цель: ${input.generationSettings.goal}.`,
       '',
-      '## Как проверить',
-      `Опишите действия и свяжите их с инструментом: ${input.sourceUrl}.`,
+      ...sections.flatMap((section) => [`## ${section}`, 'Заполните этот блок содержанием по интенту страницы.', '']),
+      '## Вторичные запросы',
+      (input.secondaryQueries.length ? input.secondaryQueries : input.clusterQueries).slice(0, 8).map((item) => `- ${item}`).join('\n'),
       '',
-      '## Частые ошибки',
-      input.clusterQueries.slice(0, 5).map((item) => `- ${item}`).join('\n'),
+      '## FAQ',
+      faqSection,
+      '',
+      '## Что сослать внутри сайта',
+      (input.linkingHints.length ? input.linkingHints : [input.sourceUrl]).map((item) => `- ${item}`).join('\n'),
+      '',
+      '## Schema',
+      input.schemaTypes.map((item) => `- ${item}`).join('\n') || '- FAQPage',
       '',
       '## Вывод',
-      'Сформулируйте итог и CTA на инструмент.',
+      input.generationSettings.includeCta ? 'Сформулируйте итог и CTA на инструмент.' : 'Сформулируйте краткий итог.',
     ].join('\n'),
   };
 }

@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
+import { normalizeContentPlanBrief } from '@/lib/content-plan-brief';
 import {
   clusters,
   contentPlan,
@@ -200,7 +201,7 @@ export async function getContentPlanByResearch(researchId: string) {
 }
 
 export async function listContentPlanItems() {
-  return db
+  const rows = await db
     .select({
       id: contentPlan.id,
       researchId: contentPlan.researchId,
@@ -211,6 +212,14 @@ export async function listContentPlanItems() {
       title: contentPlan.title,
       metaDescription: contentPlan.metaDescription,
       mainQuery: contentPlan.mainQuery,
+      secondaryQueries: contentPlan.secondaryQueries,
+      generationSettings: contentPlan.generationSettings,
+      requiredBlocks: contentPlan.requiredBlocks,
+      articleOutline: contentPlan.articleOutline,
+      faqItems: contentPlan.faqItems,
+      schemaTypes: contentPlan.schemaTypes,
+      linkingHints: contentPlan.linkingHints,
+      notesForLlm: contentPlan.notesForLlm,
       articlePreview: contentPlan.articlePreview,
       plannedDate: contentPlan.plannedDate,
       status: contentPlan.status,
@@ -231,6 +240,23 @@ export async function listContentPlanItems() {
       desc(clusters.totalFrequency),
       desc(contentPlan.updatedAt)
     );
+
+  return rows.map((item) => ({
+    ...item,
+      ...normalizeContentPlanBrief(
+        {
+          secondaryQueries: (item.secondaryQueries as string[] | null) ?? undefined,
+          generationSettings: (item.generationSettings as Record<string, unknown> | null) ?? undefined,
+          requiredBlocks: (item.requiredBlocks as string[] | null) ?? undefined,
+          articleOutline: (item.articleOutline as string[] | null) ?? undefined,
+          faqItems: (item.faqItems as string[] | null) ?? undefined,
+          schemaTypes: (item.schemaTypes as string[] | null) ?? undefined,
+          linkingHints: (item.linkingHints as string[] | null) ?? undefined,
+          notesForLlm: item.notesForLlm || '',
+        },
+        item.contentType
+      ),
+    }));
 }
 
 export async function replaceContentPlanForResearch(
@@ -245,6 +271,14 @@ export async function replaceContentPlanForResearch(
       | 'title'
       | 'metaDescription'
       | 'mainQuery'
+      | 'secondaryQueries'
+      | 'generationSettings'
+      | 'requiredBlocks'
+      | 'articleOutline'
+      | 'faqItems'
+      | 'schemaTypes'
+      | 'linkingHints'
+      | 'notesForLlm'
       | 'articlePreview'
       | 'plannedDate'
       | 'status'
@@ -260,26 +294,50 @@ export async function replaceContentPlanForResearch(
 
   const now = new Date();
   await db.insert(contentPlan).values(
-    items.map((item) => ({
-      id: crypto.randomUUID(),
-      researchId,
-      clusterId: item.clusterId || null,
-      sourceUrl: item.sourceUrl,
-      targetUrl: item.targetUrl,
-      contentType: item.contentType,
-      title: item.title,
-      metaDescription: item.metaDescription || null,
-      mainQuery: item.mainQuery,
-      articlePreview: item.articlePreview || null,
-      plannedDate: item.plannedDate || null,
-      status: item.status || 'draft',
-      isApproved: item.isApproved ?? false,
-      approvedAt: item.approvedAt || null,
-      publishedAt: item.publishedAt || null,
-      publishedUrl: item.publishedUrl || null,
-      createdAt: now,
-      updatedAt: now,
-    }))
+    items.map((item) => {
+      const brief = normalizeContentPlanBrief(
+        {
+          secondaryQueries: item.secondaryQueries as string[] | undefined,
+          generationSettings: item.generationSettings as Record<string, unknown> | undefined,
+          requiredBlocks: item.requiredBlocks as string[] | undefined,
+          articleOutline: item.articleOutline as string[] | undefined,
+          faqItems: item.faqItems as string[] | undefined,
+          schemaTypes: item.schemaTypes as string[] | undefined,
+          linkingHints: item.linkingHints as string[] | undefined,
+          notesForLlm: item.notesForLlm || '',
+        },
+        item.contentType
+      );
+
+      return {
+        id: crypto.randomUUID(),
+        researchId,
+        clusterId: item.clusterId || null,
+        sourceUrl: item.sourceUrl,
+        targetUrl: item.targetUrl,
+        contentType: item.contentType,
+        title: item.title,
+        metaDescription: item.metaDescription || null,
+        mainQuery: item.mainQuery,
+        secondaryQueries: brief.secondaryQueries,
+        generationSettings: brief.generationSettings,
+        requiredBlocks: brief.requiredBlocks,
+        articleOutline: brief.articleOutline,
+        faqItems: brief.faqItems,
+        schemaTypes: brief.schemaTypes,
+        linkingHints: brief.linkingHints,
+        notesForLlm: brief.notesForLlm || null,
+        articlePreview: item.articlePreview || null,
+        plannedDate: item.plannedDate || null,
+        status: item.status || 'draft',
+        isApproved: item.isApproved ?? false,
+        approvedAt: item.approvedAt || null,
+        publishedAt: item.publishedAt || null,
+        publishedUrl: item.publishedUrl || null,
+        createdAt: now,
+        updatedAt: now,
+      };
+    })
   );
 }
 
@@ -290,6 +348,15 @@ export async function updateContentPlanItem(
       ContentPlan,
       | 'title'
       | 'metaDescription'
+      | 'mainQuery'
+      | 'secondaryQueries'
+      | 'generationSettings'
+      | 'requiredBlocks'
+      | 'articleOutline'
+      | 'faqItems'
+      | 'schemaTypes'
+      | 'linkingHints'
+      | 'notesForLlm'
       | 'articlePreview'
       | 'plannedDate'
       | 'status'
@@ -301,10 +368,42 @@ export async function updateContentPlanItem(
     >
   >
 ) {
+  const current = await getContentPlanItem(id);
+  if (!current) return;
+
+  const brief = normalizeContentPlanBrief(
+    {
+      secondaryQueries:
+        (values.secondaryQueries as string[] | undefined) ?? ((current.secondaryQueries as string[] | null) ?? undefined),
+      generationSettings:
+        (values.generationSettings as Record<string, unknown> | undefined) ??
+        ((current.generationSettings as Record<string, unknown> | null) ?? undefined),
+      requiredBlocks:
+        (values.requiredBlocks as string[] | undefined) ?? ((current.requiredBlocks as string[] | null) ?? undefined),
+      articleOutline:
+        (values.articleOutline as string[] | undefined) ?? ((current.articleOutline as string[] | null) ?? undefined),
+      faqItems: (values.faqItems as string[] | undefined) ?? ((current.faqItems as string[] | null) ?? undefined),
+      schemaTypes:
+        (values.schemaTypes as string[] | undefined) ?? ((current.schemaTypes as string[] | null) ?? undefined),
+      linkingHints:
+        (values.linkingHints as string[] | undefined) ?? ((current.linkingHints as string[] | null) ?? undefined),
+      notesForLlm: typeof values.notesForLlm === 'string' ? values.notesForLlm : current.notesForLlm || '',
+    },
+    current.contentType
+  );
+
   await db
     .update(contentPlan)
     .set({
       ...values,
+      secondaryQueries: brief.secondaryQueries,
+      generationSettings: brief.generationSettings,
+      requiredBlocks: brief.requiredBlocks,
+      articleOutline: brief.articleOutline,
+      faqItems: brief.faqItems,
+      schemaTypes: brief.schemaTypes,
+      linkingHints: brief.linkingHints,
+      notesForLlm: brief.notesForLlm || null,
       updatedAt: values.updatedAt || new Date(),
     })
     .where(eq(contentPlan.id, id));
@@ -321,7 +420,27 @@ export async function getContentPlanItem(id: string) {
     .where(eq(contentPlan.id, id))
     .limit(1);
 
-  return result[0] || null;
+  const item = result[0] || null;
+  if (!item) return null;
+
+  const brief = normalizeContentPlanBrief(
+    {
+      secondaryQueries: (item.secondaryQueries as string[] | null) ?? undefined,
+      generationSettings: (item.generationSettings as Record<string, unknown> | null) ?? undefined,
+      requiredBlocks: (item.requiredBlocks as string[] | null) ?? undefined,
+      articleOutline: (item.articleOutline as string[] | null) ?? undefined,
+      faqItems: (item.faqItems as string[] | null) ?? undefined,
+      schemaTypes: (item.schemaTypes as string[] | null) ?? undefined,
+      linkingHints: (item.linkingHints as string[] | null) ?? undefined,
+      notesForLlm: item.notesForLlm || '',
+    },
+    item.contentType
+  );
+
+  return {
+    ...item,
+    ...brief,
+  };
 }
 
 export async function getQueriesByIds(ids: string[]) {

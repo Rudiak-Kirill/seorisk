@@ -4,6 +4,7 @@ import {
   getQueriesForResearch,
   updateContentPlanItem,
 } from '@/lib/db/seo-research';
+import { normalizeContentPlanBrief } from '@/lib/content-plan-brief';
 import { generateArticleDraft } from '@/lib/semantic-research';
 import { jsonError, requireAdminApi } from '@/lib/admin-api';
 
@@ -31,12 +32,34 @@ export async function POST(_request: Request, context: RouteContext) {
         .map((query) => query.query)
         .slice(0, 20);
 
+  const brief = normalizeContentPlanBrief(
+    {
+      secondaryQueries: (item.secondaryQueries as string[] | null) ?? undefined,
+      generationSettings: (item.generationSettings as Record<string, unknown> | null) ?? undefined,
+      requiredBlocks: (item.requiredBlocks as string[] | null) ?? undefined,
+      articleOutline: (item.articleOutline as string[] | null) ?? undefined,
+      faqItems: (item.faqItems as string[] | null) ?? undefined,
+      schemaTypes: (item.schemaTypes as string[] | null) ?? undefined,
+      linkingHints: (item.linkingHints as string[] | null) ?? undefined,
+      notesForLlm: item.notesForLlm || '',
+    },
+    item.contentType
+  );
+
   const draft = await generateArticleDraft({
     title: item.title,
     mainQuery: item.mainQuery,
     metaDescription: item.metaDescription || '',
     sourceUrl: item.sourceUrl,
     clusterQueries,
+    secondaryQueries: brief.secondaryQueries,
+    generationSettings: brief.generationSettings,
+    requiredBlocks: brief.requiredBlocks,
+    articleOutline: brief.articleOutline,
+    faqItems: brief.faqItems,
+    schemaTypes: brief.schemaTypes,
+    linkingHints: brief.linkingHints,
+    notesForLlm: brief.notesForLlm,
   });
 
   await updateContentPlanItem(id, {

@@ -36,6 +36,11 @@ export async function POST(_request: Request, context: RouteContext) {
         .sort((left, right) => (right.frequency || 0) - (left.frequency || 0))[0]?.query ||
       rows[0]?.query ||
       null;
+    const toolSecondaryQueries = rows
+      .filter((item) => item.destination === 'tool' && item.query !== toolMainQuery)
+      .sort((left, right) => (right.frequency || 0) - (left.frequency || 0))
+      .map((item) => item.query)
+      .slice(0, 12);
 
     const blogQueries = rows
       .filter((item) => item.destination === 'blog')
@@ -73,15 +78,27 @@ export async function POST(_request: Request, context: RouteContext) {
       )
     );
 
+    const clusterQueriesById: Record<string, string[]> = {};
+    clustered.forEach((cluster, index) => {
+      const clusterId = insertedClusters[index]?.id;
+      if (!clusterId) return;
+      clusterQueriesById[clusterId] = cluster.queryIds
+        .map((queryId) => rowLookup.get(queryId)?.query || '')
+        .filter(Boolean)
+        .slice(0, 12);
+    });
+
     const planDrafts = buildContentPlanDrafts({
       researchId: id,
       researchUrl: research.url,
       toolMainQuery,
+      toolSecondaryQueries,
       clusters: insertedClusters.map((item) => ({
         id: item.id,
         mainQuery: item.mainQuery,
         totalFrequency: item.totalFrequency,
       })),
+      clusterQueriesById,
     });
 
     await replaceContentPlanForResearch(
@@ -94,6 +111,14 @@ export async function POST(_request: Request, context: RouteContext) {
         title: item.title,
         metaDescription: item.metaDescription,
         mainQuery: item.mainQuery,
+        secondaryQueries: item.secondaryQueries,
+        generationSettings: item.generationSettings,
+        requiredBlocks: item.requiredBlocks,
+        articleOutline: item.articleOutline,
+        faqItems: item.faqItems,
+        schemaTypes: item.schemaTypes,
+        linkingHints: item.linkingHints,
+        notesForLlm: item.notesForLlm,
         articlePreview: null,
         plannedDate: null,
         status: 'draft',
