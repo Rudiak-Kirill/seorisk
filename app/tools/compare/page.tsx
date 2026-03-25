@@ -316,7 +316,7 @@ const SECTION_ROWS: Array<{ title: string; rows: RowConfig[] }> = [
     title: 'Контент-чек',
     rows: [
       {
-        label: 'Типовая страница',
+        label: 'Тип страницы (корень)',
         getValue: (site) => site.metrics.content.page_type,
         render: (site) => site.metrics.content.page_type || '—',
       },

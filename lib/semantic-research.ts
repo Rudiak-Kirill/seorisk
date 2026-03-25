@@ -325,68 +325,98 @@ async function callRelayJson<T>(path: string, payload: Record<string, unknown>):
 
 const TOOL_SEED_PRESETS: Record<string, string[]> = {
   'subdomain-check': [
+    'поддомены сайта',
+    'проверка поддоменов',
+    'проверить поддомены',
     'проверить поддомены сайта',
+    'найти поддомены',
     'найти поддомены сайта',
-    'все поддомены домена',
-    'список поддоменов сайта',
-    'проверка поддоменов сайта',
-    'dev test stage поддомены',
-    'открытые тестовые поддомены',
-    'региональные поддомены сайта',
-    'robots txt на поддомене',
-    'редиректы между поддоменами',
-    'дубли контента на поддоменах',
-    'поддомен открыт для индексации',
+    'узнать поддомены сайта',
+    'посмотреть поддомены сайта',
+    'все поддомены сайта',
+    'список поддоменов',
+    'открытые поддомены',
+    'тестовые поддомены',
+    'dev поддомены',
+    'test поддомены',
+    'stage поддомены',
+    'региональные поддомены',
+    'robots txt поддоменов',
+    'редиректы поддоменов',
+    'дубли контента поддоменов',
+    'индексация поддоменов',
   ],
   'ssr-check': [
     'проверить рендеринг сайта',
+    'проверить ssr сайта',
     'как googlebot видит страницу',
-    'react сайт не индексируется',
+    'проверить html для бота',
+    'react не индексируется',
     'next js seo проверка',
-    'csr проблемы индексации',
-    'бот не видит контент сайта',
+    'csr проблемы seo',
+    'бот не видит контент',
+    'проверка рендера страницы',
+    'проверить серверный рендеринг',
   ],
   'llm-check': [
-    'доступна ли страница для gptbot',
     'проверить gptbot',
-    'страница закрыта для ai ботов',
+    'доступность для gptbot',
+    'доступность для ai ботов',
+    'страница закрыта для ai',
     'как ai бот видит страницу',
-    'доступность сайта для chatgpt',
+    'проверить chatgpt bot',
+    'проверить ai ботов',
+    'сайт закрыт для chatgpt',
   ],
   'index-check': [
     'проверить индексацию страницы',
+    'проверить возможность индексации',
     'страница закрыта от индексации',
     'robots txt блокирует страницу',
     'canonical настроен неправильно',
     'почему страница не индексируется',
+    'проверить robots txt страницы',
+    'проверить canonical страницы',
   ],
   'speed-check': [
     'проверить скорость сайта',
+    'проверить скорость страницы',
+    'скорость загрузки сайта',
     'скорость загрузки страницы',
     'низкий pagespeed mobile',
     'медленный сайт на мобильных',
-    'ttfb сайта проверить',
+    'проверить ttfb сайта',
+    'проверить pagespeed сайта',
   ],
   'site-profile': [
-    'профиль сайта для seo',
+    'профиль сайта',
+    'структура сайта',
     'структура sitemap сайта',
-    'тип сайта определить',
-    'икс сайта проверить',
-    'cms сайта определить',
+    'определить тип сайта',
+    'проверить икс сайта',
+    'определить cms сайта',
+    'анализ структуры сайта',
+    'анализ sitemap сайта',
   ],
   'content-check': [
     'проверка контента страницы',
-    'контент чек страницы',
-    'проверить страницу товара seo',
-    'проверить статью на seo ошибки',
     'аудит контента страницы',
+    'проверить контент страницы',
+    'проверить страницу на seo',
+    'проверить страницу товара',
+    'проверить страницу каталога',
+    'проверить статью на seo',
+    'контент аудит страницы',
   ],
   'ru-access-check': [
     'проверить доступность сайта из рф',
-    'сайт заблокирован в россии',
-    'проверить реестр ркн',
+    'проверить сайт из россии',
     'сайт недоступен из россии',
+    'проверить реестр ркн',
+    'сайт заблокирован в россии',
     'доступ к сайту из рф',
+    'проверить блокировку сайта',
+    'проверить доступ из рф',
   ],
   compare: [
     'сравнить сайт с конкурентами',
@@ -394,6 +424,7 @@ const TOOL_SEED_PRESETS: Record<string, string[]> = {
     'seo сравнение конкурентов',
     'сравнить показатели сайта',
     'анализ конкурентов сайта',
+    'сравнить сайт по seo',
   ],
 };
 
@@ -467,14 +498,18 @@ function isUsefulSeedPhrase(value: string) {
   return true;
 }
 
+function buildPresetSeedQueries(slug: string) {
+  return dedupeQueries((TOOL_SEED_PRESETS[slug] || []).map(normalizeSeedPhrase).filter(isUsefulSeedPhrase));
+}
+
 export function buildFallbackSeedQueries(context: ResearchPageContext) {
   const phrases = new Set<string>();
   const excerpt = context.textExcerpt.toLowerCase();
   const slug = getToolSlug(context);
+  const presetSeeds = buildPresetSeedQueries(slug);
 
-  for (const preset of TOOL_SEED_PRESETS[slug] || []) {
-    const normalized = normalizeSeedPhrase(preset);
-    if (isUsefulSeedPhrase(normalized)) phrases.add(normalized);
+  for (const preset of presetSeeds) {
+    phrases.add(preset);
   }
 
   const titleRoot = normalizeSeedPhrase(context.title.split('|')[0] || '');
@@ -489,7 +524,7 @@ export function buildFallbackSeedQueries(context: ResearchPageContext) {
     .filter(Boolean)
     .join(' ');
 
-  if (!TOOL_SEED_PRESETS[slug]?.length) {
+  if (!presetSeeds.length) {
     for (const phrase of extractNgrams(base, 2, 4).slice(0, 30)) {
       const normalized = normalizeSeedPhrase(phrase);
       if (!isUsefulSeedPhrase(normalized)) continue;
@@ -498,15 +533,6 @@ export function buildFallbackSeedQueries(context: ResearchPageContext) {
       const words = normalized.split(/\s+/).filter(Boolean);
       if (words.length <= 4 && !/^провер(ить|ка)(?:\s|$)/u.test(normalized)) {
         phrases.add(`проверить ${normalized}`);
-      }
-    }
-  } else {
-    for (const phrase of [titleRoot, h1Root]) {
-      if (!isUsefulSeedPhrase(phrase)) continue;
-      phrases.add(phrase);
-      const words = phrase.split(/\s+/).filter(Boolean);
-      if (words.length <= 4 && !/^провер(ить|ка)(?:\s|$)/u.test(phrase)) {
-        phrases.add(`проверить ${phrase}`);
       }
     }
   }
@@ -533,6 +559,17 @@ export function buildFallbackSeedQueries(context: ResearchPageContext) {
 }
 
 export async function generateSeedQueries(context: ResearchPageContext): Promise<SeedGenerationResult> {
+  const slug = getToolSlug(context);
+  const presetSeeds = buildPresetSeedQueries(slug);
+
+  if (presetSeeds.length) {
+    return {
+      queries: presetSeeds,
+      raw: { strategy: 'preset', slug },
+      source: 'fallback',
+    };
+  }
+
   const relayResult = await callRelayJson<{ queries?: string[]; raw?: unknown }>(
     '/api/semantic/seeds',
     {

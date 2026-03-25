@@ -233,6 +233,9 @@ const commercialPatterns = [
   '/uslugi/',
   '/order/',
   '/buy/',
+  '/pricing/',
+  '/tariffs/',
+  '/plans/',
   '/korzina/',
   '/cart/',
   '/checkout/',
@@ -248,11 +251,43 @@ const informationalPatterns = [
   '/pomoshch/',
 ];
 
-const applicationPatterns = ['/app/', '/lk/', '/cabinet/', '/dashboard/', '/platform/'];
+const applicationPatterns = [
+  '/app/',
+  '/lk/',
+  '/cabinet/',
+  '/dashboard/',
+  '/platform/',
+  '/calc/',
+  '/calculator/',
+  '/converter/',
+  '/nmck/',
+  '/tekhzadanie/',
+  '/analysis/',
+  '/report/',
+];
 
-const searchPatterns = ['/search/', '/poisk/', '/find/', '/results/'];
+const searchPatterns = [
+  '/search/',
+  '/poisk/',
+  '/find/',
+  '/results/',
+  '/reestr/',
+  '/registry/',
+  '/tender/',
+  '/tenders/',
+  '/torgi/',
+  '/contract/',
+  '/contracts/',
+  '/contragent/',
+  '/supplier/',
+  '/customer/',
+  '/ktru/',
+  '/okpd/',
+  '/okpd2/',
+  '/okved/',
+];
 
-const documentPatterns = ['/docs/', '/documentation/', '/doc-cat/', '/documents/', '/dokument'];
+const documentPatterns = ['/docs/', '/documentation/', '/doc-cat/', '/documents/', '/dokument', '/api/'];
 
 const videoPatterns = ['/video/', '/videos/', '/webinar', '/webinars/', '/vebinar'];
 
@@ -267,7 +302,138 @@ const servicePatterns = [
   '/privacy/',
   '/oferta/',
   '/dostavka/',
+  '/offer/',
+  '/agreement/',
+  '/terms/',
 ];
+
+
+const applicationTokens = [
+  'app',
+  'lk',
+  'cabinet',
+  'dashboard',
+  'platform',
+  'calc',
+  'calculator',
+  'calculators',
+  'converter',
+  'nmck',
+  'nmcd',
+  'tekhzadanie',
+  'texzadanie',
+  'analiz',
+  'analysis',
+  'favorite',
+  'favorites',
+  'plan',
+  'plans',
+  'report',
+  'reports',
+  'checker',
+  'tool',
+  'tools',
+];
+
+const searchTokens = [
+  'search',
+  'poisk',
+  'find',
+  'results',
+  'result',
+  'registry',
+  'reestr',
+  'register',
+  'zakupki',
+  'zakupka',
+  'zak',
+  'tender',
+  'tenders',
+  'torgi',
+  'auction',
+  'auctions',
+  'lot',
+  'lots',
+  'contract',
+  'contracts',
+  'contragent',
+  'supplier',
+  'suppliers',
+  'customer',
+  'customers',
+  'procedure',
+  'procedures',
+  'trade',
+  'trades',
+  'ktru',
+  'okpd',
+  'okpd2',
+  'okved',
+  'classifier',
+  'classifiers',
+];
+
+const documentTokens = [
+  'docs',
+  'doc',
+  'documentation',
+  'document',
+  'documents',
+  'manual',
+  'guide',
+  'guides',
+  'instruction',
+  'instructions',
+  'api',
+];
+
+const videoTokens = ['video', 'videos', 'webinar', 'webinars', 'vebinar', 'recording', 'youtube', 'rutube'];
+
+const faqTokens = ['faq', 'voprosy-otvety', 'questions', 'question', 'answers', 'answer', 'dwqa'];
+
+const commercialTokens = [
+  'catalog',
+  'category',
+  'categories',
+  'shop',
+  'store',
+  'price',
+  'prices',
+  'pricing',
+  'tariff',
+  'tariffs',
+  'service',
+  'services',
+  'uslugi',
+  'product',
+  'products',
+  'tovar',
+  'tovary',
+  'buy',
+  'order',
+  'cart',
+  'checkout',
+];
+
+const informationalTokens = [
+  'blog',
+  'blogs',
+  'article',
+  'articles',
+  'news',
+  'novosti',
+  'stati',
+  'help',
+  'guide',
+  'guides',
+  'pomoshch',
+];
+
+const serviceTokens = ['about', 'o-nas', 'contacts', 'kontakty', 'policy', 'privacy', 'offer', 'oferta', 'terms', 'agreement', 'delivery', 'dostavka', 'support'];
+
+function includesToken(segments: string[], tokens: string[]) {
+  return segments.some((segment) => tokens.some((token) => segment === token || segment.includes(token)));
+}
 
 const sitemapBucketLabels: Record<SitemapBucket, string> = {
   commercial: 'коммерческих',
@@ -935,11 +1101,14 @@ async function crawlSitemaps(initialUrls: string[]) {
 
 function classifyUrl(loc: string): SitemapBucket {
   let path = loc.toLowerCase();
+  let segments: string[] = [];
 
   try {
     path = decodeURIComponent(new URL(loc).pathname.toLowerCase());
+    segments = path.split('/').filter(Boolean);
   } catch {
     path = loc.toLowerCase();
+    segments = path.split('/').filter(Boolean);
   }
 
   if (applicationPatterns.some((pattern) => path.includes(pattern))) return 'application';
@@ -951,28 +1120,30 @@ function classifyUrl(loc: string): SitemapBucket {
   if (informationalPatterns.some((pattern) => path.includes(pattern))) return 'informational';
   if (servicePatterns.some((pattern) => path.includes(pattern))) return 'service';
 
-  if (/(search|find|query|lookup|okpd2|nkmi|registry|reestr)/i.test(path)) {
-    return 'search';
-  }
+  if (includesToken(segments, applicationTokens)) return 'application';
+  if (includesToken(segments, searchTokens)) return 'search';
+  if (includesToken(segments, documentTokens)) return 'documents';
+  if (includesToken(segments, videoTokens)) return 'video';
+  if (includesToken(segments, faqTokens)) return 'faq';
+  if (includesToken(segments, commercialTokens)) return 'commercial';
+  if (includesToken(segments, informationalTokens)) return 'informational';
+  if (includesToken(segments, serviceTokens)) return 'service';
 
-  if (/(docs?|documentation|document|паспорт|инструкц|руководство|manual|guide)/i.test(path)) {
-    return 'documents';
-  }
+  if (/(search|find|query|lookup|okpd2|nkmi|registry|reestr)/i.test(path)) return 'search';
+  if (/(ktru|okpd|okved|contragent|contract|zakup|tender|torgi|auction|supplier|customer|trade|procedure)/i.test(path)) return 'search';
+  if (/(calc|calculator|converter|nmck|nmcd|tekhzadanie|analysis|analiz|report|checker|tool)/i.test(path)) return 'application';
+  if (/(docs?|documentation|document|manual|guide)/i.test(path)) return 'documents';
+  if (/(video|webinar|vebinar|recording|youtube|rutube)/i.test(path)) return 'video';
+  if (/(faq|question|answer|dwqa)/i.test(path)) return 'faq';
+  if (/(product|shop|catalog|tovar|uslug|price|pricing|tariff)/i.test(path)) return 'commercial';
+  if (/(blog|news|guide|help|article|stati)/i.test(path)) return 'informational';
 
-  if (/(video|webinar|vebinar|recording|youtube|rutube)/i.test(path)) {
-    return 'video';
-  }
+  const firstSegment = segments[0] || '';
+  const hasIdLikeSegment = segments.some((segment) => /\d/.test(segment) || /^[a-f0-9-]{8,}$/i.test(segment));
 
-  if (/(faq|question|answer|вопрос|ответ|dwqa)/i.test(path)) {
-    return 'faq';
-  }
-
-  if (/(купить|цена|заказать|стоимость|product|shop|catalog|товар|услуг)/i.test(path)) {
-    return 'commercial';
-  }
-
-  if (/(как|почему|что-такое|что_такое|статья|blog|news|guide|help)/i.test(path)) {
-    return 'informational';
+  if (hasIdLikeSegment && firstSegment) {
+    if (includesToken([firstSegment], searchTokens)) return 'search';
+    if (includesToken([firstSegment], applicationTokens)) return 'application';
   }
 
   return 'unknown';

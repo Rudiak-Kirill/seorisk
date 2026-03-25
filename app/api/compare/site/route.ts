@@ -363,7 +363,7 @@ export async function POST(req: Request) {
         postJson<ContentCheckResponse>(
           origins,
           '/api/content-check',
-          { url: siteUrl, mode: 'representative' },
+          { url: siteUrl, mode: 'page' },
           CHECK_TIMEOUT_MS.content
         ),
         postJson<ContentCheckResponse>(

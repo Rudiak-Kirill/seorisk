@@ -732,6 +732,7 @@ function buildBaseFeatures(snapshot: FetchSnapshot, inputUrl: string): BaseFeatu
 }
 function scorePageType(features: BaseFeatures): TypeScore[] {
   const path = new URL(features.finalUrl).pathname.toLowerCase();
+  const isRootPath = path === '/' || path === '';
   const scores: Record<ContentPageType, TypeScore> = {
     product: { key: 'product', score: 0, reasons: [] },
     category: { key: 'category', score: 0, reasons: [] },
@@ -748,15 +749,18 @@ function scorePageType(features: BaseFeatures): TypeScore[] {
     scores[key].reasons.push(reason);
   };
 
-  if (path === '/' || path === '') add('home', 45, 'корень домена');
-  if (/contact|kontakty|contacts|o-nas|about/i.test(path)) add('contacts', 35, 'URL похож на контакты');
-  if (/contact|kontakty|contacts|o-nas|about|faq|help|pomoshch/i.test(path)) {
-    add('informational', 40, 'URL похож на информационную страницу');
+  if (isRootPath) {
+    add('home', 90, 'корень домена');
+  } else {
+    if (/contact|kontakty|contacts|o-nas|about/i.test(path)) add('contacts', 35, 'URL похож на контакты');
+    if (/contact|kontakty|contacts|o-nas|about|faq|help|pomoshch/i.test(path)) {
+      add('informational', 40, 'URL похож на информационную страницу');
+    }
+    if (/catalog|category|shop|store|collection|products/i.test(path)) add('category', 25, 'URL похож на каталог');
+    if (/product|tovar|item|goods/i.test(path)) add('product', 35, 'URL похож на товар');
+    if (/blog|article|news|stati|post/i.test(path)) add('article', 35, 'URL похож на статью');
+    if (/landing|lp|promo/i.test(path)) add('landing', 25, 'URL похож на лендинг');
   }
-  if (/catalog|category|shop|store|collection|products/i.test(path)) add('category', 25, 'URL похож на каталог');
-  if (/product|tovar|item|goods/i.test(path)) add('product', 35, 'URL похож на товар');
-  if (/blog|article|news|stati|post/i.test(path)) add('article', 35, 'URL похож на статью');
-  if (/landing|lp|promo/i.test(path)) add('landing', 25, 'URL похож на лендинг');
 
   const strongCatalogSignals =
     features.itemListSchemaFound ||
@@ -765,35 +769,44 @@ function scorePageType(features: BaseFeatures): TypeScore[] {
         features.filterFound ||
         /catalog|category|shop|store|products/i.test(path)));
 
-  if (strongCatalogSignals) add('category', 95, 'найден каталог: 5+ карточек с ценами, ItemList или структура листинга');
-  if (features.itemListSchemaFound) add('category', 55, 'есть schema ItemList');
-  if (features.productSchemaCount === 1 && !strongCatalogSignals) add('product', 70, 'один schema Product соответствует карточке товара');
-  if (features.productSchemaFound && !strongCatalogSignals) add('product', 40, 'есть schema Product');
-  if (features.articleSchemaFound) add('article', 60, 'есть schema Article');
+  if (!isRootPath && strongCatalogSignals) add('category', 95, 'найден каталог: 5+ карточек с ценами, ItemList или структура листинга');
+  if (!isRootPath && features.itemListSchemaFound) add('category', 55, 'есть schema ItemList');
+  if (!isRootPath && features.productSchemaCount === 1 && !strongCatalogSignals) add('product', 70, 'один schema Product соответствует карточке товара');
+  if (!isRootPath && features.productSchemaFound && !strongCatalogSignals) add('product', 40, 'есть schema Product');
+  if (!isRootPath && features.articleSchemaFound) add('article', 60, 'есть schema Article');
   if (features.phoneFound && features.addressFound && features.formFound) add('contacts', 35, 'есть контактные данные и форма');
   if (features.schemaTypes.includes('Organization') || features.schemaTypes.includes('LocalBusiness')) {
     add('informational', 30, 'есть schema Organization/LocalBusiness');
   }
-  if (features.priceText && !strongCatalogSignals) add('product', 25, 'найдена цена');
-  if (features.buyButtonLabel && !strongCatalogSignals) add('product', 30, 'найдена кнопка купить');
-  if (features.listingCards >= 4) add('category', 35, 'найден листинг карточек');
-  if (features.filterFound) add('category', 25, 'найдены фильтры');
-  if (features.wordCount >= 500 && features.h2Count + features.h3Count >= 3) add('article', 35, 'длинный текст с H2/H3');
-  if (features.authorFound) add('article', 15, 'найден автор');
-  if (features.publishedDate) add('article', 20, 'найдена дата публикации');
-  if (features.wordCount < 500 && !features.authorFound && !features.publishedDate) {
+  if (!isRootPath && features.priceText && !strongCatalogSignals) add('product', 25, 'найдена цена');
+  if (!isRootPath && features.buyButtonLabel && !strongCatalogSignals) add('product', 30, 'найдена кнопка купить');
+  if (!isRootPath && features.listingCards >= 4) add('category', 35, 'найден листинг карточек');
+  if (!isRootPath && features.filterFound) add('category', 25, 'найдены фильтры');
+  if (!isRootPath && features.wordCount >= 500 && features.h2Count + features.h3Count >= 3) add('article', 35, 'длинный текст с H2/H3');
+  if (!isRootPath && features.authorFound) add('article', 15, 'найден автор');
+  if (!isRootPath && features.publishedDate) add('article', 20, 'найдена дата публикации');
+  if (!isRootPath && features.wordCount < 500 && !features.authorFound && !features.publishedDate) {
     add('informational', 20, 'короткая информационная страница без автора и даты');
   }
-  if (features.formFound && features.ctaFound && features.listingCards < 3) add('landing', 30, 'форма и оффер');
-  if (features.ctaFound && path === '/') add('home', 20, 'главная с CTA');
-  if (features.wordCount < 220 && features.formFound && !features.articleSchemaFound && !features.itemListSchemaFound) add('landing', 15, 'короткий офферный контент');
-  if (features.categoryDescriptionFound && features.listingCards >= 4) add('category', 10, 'есть описание категории');
-  if (features.relatedFound && features.priceText && features.buyButtonLabel && !strongCatalogSignals) add('product', 10, 'есть рекомендации товара');
+
+  if (features.formFound && features.ctaFound && features.listingCards < 3) {
+    add('landing', isRootPath ? 70 : 30, isRootPath ? 'корневая страница с оффером и формой' : 'форма и оффер');
+  }
+
+  if (isRootPath && features.ctaFound) add('home', 25, 'главная с CTA');
+  if (isRootPath && features.internalLinks.length >= 10) add('home', 20, 'на главной много внутренних ссылок');
+  if (isRootPath && features.reviewsFound) add('home', 10, 'на главной есть блок доверия');
+  if (isRootPath && features.wordCount >= 180) add('home', 10, 'на главной есть базовый контент');
+  if (features.wordCount < 220 && features.formFound && !features.articleSchemaFound && !features.itemListSchemaFound) {
+    add('landing', isRootPath ? 25 : 15, isRootPath ? 'короткий офферный контент на корне домена' : 'короткий офферный контент');
+  }
+  if (!isRootPath && features.categoryDescriptionFound && features.listingCards >= 4) add('category', 10, 'есть описание категории');
+  if (!isRootPath && features.relatedFound && features.priceText && features.buyButtonLabel && !strongCatalogSignals) add('product', 10, 'есть рекомендации товара');
   if (features.faqFound && !features.articleSchemaFound && features.wordCount < 700) {
-    add('informational', 20, 'есть FAQ-сигналы на информационной странице');
+    add(isRootPath ? 'home' : 'informational', isRootPath ? 10 : 20, isRootPath ? 'на главной есть FAQ-блок' : 'есть FAQ-сигналы на информационной странице');
   }
   if ((features.phoneFound || features.addressFound) && !features.publishedDate && !features.authorFound) {
-    add('informational', 20, 'контактные сигналы без признаков статьи');
+    add(isRootPath ? 'home' : 'informational', isRootPath ? 10 : 20, isRootPath ? 'на главной есть контактные сигналы' : 'контактные сигналы без признаков статьи');
   }
 
   if (!Object.values(scores).some((item) => item.score > 0)) {
@@ -815,9 +828,24 @@ function resolvePageType(features: BaseFeatures, overrideType?: ContentPageType 
     };
   }
 
+  const path = new URL(features.finalUrl).pathname.toLowerCase();
+  const isRootPath = path === '/' || path === '';
   const scores = scorePageType(features);
-  const best = scores[0].key === 'contacts' ? { ...scores[0], key: 'informational' as ContentPageType } : scores[0];
-  const second = scores[1] || { score: 0 };
+  const normalizedScores = scores.map((item) =>
+    item.key === 'contacts' ? { ...item, key: 'informational' as ContentPageType } : item
+  );
+
+  let best = normalizedScores[0];
+  let second = normalizedScores[1] || { score: 0 };
+
+  if (isRootPath) {
+    const rootScores = normalizedScores
+      .filter((item) => item.key === 'home' || item.key === 'landing')
+      .sort((a, b) => b.score - a.score);
+    best = rootScores[0] || normalizedScores[0];
+    second = rootScores[1] || { score: 0 };
+  }
+
   const confidence = Math.max(35, Math.min(98, best.score + (best.score - second.score)));
 
   return {
@@ -826,13 +854,10 @@ function resolvePageType(features: BaseFeatures, overrideType?: ContentPageType 
     confidence,
     reason: best.reasons[0] || 'Тип определён по структуре страницы',
     needsChoice: !forceBest && (best.key === 'unknown' || confidence < 80),
-    suggestions: scores
+    suggestions: normalizedScores
       .filter((item) => item.key !== 'unknown' && item.score > 0)
       .slice(0, 3)
-      .map((item) => {
-        const key = item.key === 'contacts' ? 'informational' : item.key;
-        return { key, label: PAGE_TYPE_LABELS[key] };
-      }),
+      .map((item) => ({ key: item.key, label: PAGE_TYPE_LABELS[item.key] })),
   };
 }
 
@@ -962,6 +987,16 @@ function evaluateChecks(features: BaseFeatures, pageType: ContentPageType) {
       push(important, !(features.phoneFound || features.emailFound || features.addressFound), 'Нет контактных данных', 'Добавьте контакты или явные реквизиты.');
       push(improve, features.contentImages.length === 0, 'Нет иллюстраций', 'Добавьте изображения или визуальные блоки.');
     }
+  } else if (pageType === 'home') {
+    push(critical, features.h1Count === 0, 'H1 отсутствует', 'Добавьте H1 для главной страницы.');
+    push(critical, features.titleLength === 0, 'Title отсутствует', 'Добавьте title для главной страницы.');
+    push(important, !features.ctaFound, 'Нет основного CTA', 'Добавьте явный призыв к действию на первом экране.');
+    push(important, !(features.phoneFound || features.emailFound || features.formFound), 'Нет явного контакта или формы', 'Добавьте телефон, email или форму заявки на главную.');
+    push(important, !features.ogImage, 'Нет og:image', 'Добавьте Open Graph image для главной.');
+    push(important, !features.schemaTypes.some((item) => ['Organization', 'WebSite', 'WebPage', 'Service'].includes(item)), 'Нет базовой schema главной', 'Добавьте Organization или WebSite schema.');
+    push(improve, !features.reviewsFound, 'Нет блока доверия', 'Добавьте отзывы, кейсы или цифры доверия на главную.');
+    push(improve, !features.faqFound, 'Нет FAQ блока', 'Добавьте FAQ или ответы на частые вопросы.');
+    push(improve, features.wordCount < 250, 'Мало текста на главной', 'Усилите оффер, преимущества и блоки с контентом.');
   } else if (pageType === 'landing') {
     push(critical, features.h1Count === 0, 'H1 отсутствует', 'Добавьте H1 с оффером.');
     push(critical, !features.formFound, 'Форма заявки не найдена', 'Добавьте форму на первом экране или рядом с CTA.');
@@ -1114,6 +1149,20 @@ function buildDetailGroups(features: BaseFeatures, pageType: ContentPageType) {
     });
   }
 
+  if (pageType === 'home') {
+    groups.push({
+      title: 'Проверка главной',
+      items: [
+        { label: 'CTA', value: features.ctaFound ? 'найден' : 'не найден' },
+        { label: 'Форма', value: features.formFound ? 'найдена' : 'не найдена' },
+        { label: 'Отзывы / FAQ', value: `${features.reviewsFound ? 'есть' : 'нет'} / ${features.faqFound ? 'есть' : 'нет'}` },
+        { label: 'Телефон / Email / форма', value: `${features.phoneFound ? 'есть' : 'нет'} / ${features.emailFound ? 'есть' : 'нет'} / ${features.formFound ? 'есть' : 'нет'}` },
+        { label: 'Schema Organization / WebSite / Service', value: `${features.schemaTypes.includes('Organization') ? '✅' : '❌'} / ${features.schemaTypes.includes('WebSite') ? '✅' : '❌'} / ${features.schemaTypes.includes('Service') ? '✅' : '❌'}` },
+        { label: 'Внутренние ссылки / изображения', value: `${features.internalLinks.length} / ${features.contentImages.length}` },
+      ],
+    });
+  }
+
   if (pageType === 'landing') {
     groups.push({
       title: 'Проверка лендинга',
@@ -1146,6 +1195,7 @@ function expectedCheckCount(pageType: ContentPageType, features: BaseFeatures) {
   if (pageType === 'product') return 15;
   if (pageType === 'category') return 13;
   if (pageType === 'article') return 19;
+  if (pageType === 'home') return 8;
   if (pageType === 'landing') return 8;
   if (pageType === 'contacts') return 7;
   if (pageType === 'informational') {
