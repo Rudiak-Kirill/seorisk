@@ -4,6 +4,7 @@ import {
   getQueriesForResearch,
   getSeoResearchById,
   insertQueries,
+  updateQueryFrequencies,
   updateSeoResearch,
 } from '@/lib/db/seo-research';
 import { expandQueriesWithWordstat } from '@/lib/semantic-research';
@@ -24,7 +25,8 @@ export async function POST(_request: Request, context: RouteContext) {
     const research = await getSeoResearchById(id);
     if (!research) return jsonError('Исследование не найдено', 404);
 
-    const seedQueries = (await getQueriesForResearch(id))
+    const existingQueries = await getQueriesForResearch(id);
+    const seedQueries = existingQueries
       .filter((item) => item.source === 'seed')
       .map((item) => item.query);
 
@@ -49,6 +51,19 @@ export async function POST(_request: Request, context: RouteContext) {
         reason: null,
       }))
     );
+
+    const frequencyMap = new Map(
+      expansion.seedFrequencies.map((item) => [item.query.trim().toLowerCase(), item.frequency])
+    );
+    const seedFrequencyUpdates = existingQueries
+      .filter((item) => item.source === 'seed')
+      .map((item) => ({
+        id: item.id,
+        frequency: frequencyMap.get(item.query.trim().toLowerCase()) ?? item.frequency ?? 0,
+      }))
+      .filter((item) => item.frequency > 0);
+
+    await updateQueryFrequencies(seedFrequencyUpdates);
     await updateSeoResearch(id, { status: 'cleaning', updatedAt: new Date() });
 
     const message =
@@ -61,6 +76,7 @@ export async function POST(_request: Request, context: RouteContext) {
     return NextResponse.json({
       ok: true,
       count: expansion.items.length,
+      updatedSeedFrequencies: seedFrequencyUpdates.length,
       status: expansion.status,
       message,
       processedSeeds: expansion.processedSeeds,

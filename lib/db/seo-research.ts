@@ -139,6 +139,19 @@ export async function updateQueriesAssignments(
   }
 }
 
+export async function updateQueryFrequencies(
+  updates: Array<Pick<Query, 'id' | 'frequency'>>
+) {
+  for (const item of updates) {
+    await db
+      .update(queries)
+      .set({
+        frequency: item.frequency || 0,
+      })
+      .where(eq(queries.id, item.id));
+  }
+}
+
 export async function getClustersForResearch(researchId: string) {
   return db
     .select()

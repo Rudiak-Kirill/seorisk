@@ -623,6 +623,8 @@ async function runWithConcurrency<T, R>(
 }
 
 type WordstatCallResult = {
+  requestPhrase: string | null;
+  totalCount: number;
   topRequests: Array<{ query: string; frequency: number }>;
   associations: Array<{ query: string; frequency: number }>;
   quotaLimited: boolean;
@@ -665,7 +667,14 @@ function extractWordstatEntries(raw: unknown, bucket: 'topRequests' | 'associati
 
 async function callWordstat(phrase: string): Promise<WordstatCallResult> {
   if (!WORDSTAT_TOKEN) {
-    return { topRequests: [], associations: [], quotaLimited: false, authError: false };
+    return {
+      requestPhrase: null,
+      totalCount: 0,
+      topRequests: [],
+      associations: [],
+      quotaLimited: false,
+      authError: false,
+    };
   }
 
   let quotaLimited = false;
@@ -688,7 +697,14 @@ async function callWordstat(phrase: string): Promise<WordstatCallResult> {
       });
 
       if (response.status === 401 || response.status === 403) {
-        return { topRequests: [], associations: [], quotaLimited: false, authError: true };
+        return {
+          requestPhrase: null,
+          totalCount: 0,
+          topRequests: [],
+          associations: [],
+          quotaLimited: false,
+          authError: true,
+        };
       }
 
       if (response.status === 429 || response.status === 503) {
@@ -697,32 +713,71 @@ async function callWordstat(phrase: string): Promise<WordstatCallResult> {
           await delay(WORDSTAT_RETRY_DELAYS_MS[attempt]);
           continue;
         }
-        return { topRequests: [], associations: [], quotaLimited: true, authError: false };
+        return {
+          requestPhrase: null,
+          totalCount: 0,
+          topRequests: [],
+          associations: [],
+          quotaLimited: true,
+          authError: false,
+        };
       }
 
       if (!response.ok) {
-        return { topRequests: [], associations: [], quotaLimited: false, authError: false };
+        return {
+          requestPhrase: null,
+          totalCount: 0,
+          topRequests: [],
+          associations: [],
+          quotaLimited: false,
+          authError: false,
+        };
       }
 
       const json = (await response.json()) as unknown;
+      const requestPhrase =
+        json && typeof json === 'object' && typeof (json as Record<string, unknown>).requestPhrase === 'string'
+          ? normalizeWhitespace((json as Record<string, unknown>).requestPhrase as string)
+          : null;
+      const totalCount =
+        json && typeof json === 'object' && typeof (json as Record<string, unknown>).totalCount === 'number'
+          ? ((json as Record<string, unknown>).totalCount as number)
+          : 0;
       return {
+        requestPhrase,
+        totalCount,
         topRequests: extractWordstatEntries(json, 'topRequests'),
         associations: extractWordstatEntries(json, 'associations'),
         quotaLimited,
         authError: false,
       };
     } catch {
-      return { topRequests: [], associations: [], quotaLimited, authError: false };
+      return {
+        requestPhrase: null,
+        totalCount: 0,
+        topRequests: [],
+        associations: [],
+        quotaLimited,
+        authError: false,
+      };
     }
   }
 
-  return { topRequests: [], associations: [], quotaLimited, authError: false };
+  return {
+    requestPhrase: null,
+    totalCount: 0,
+    topRequests: [],
+    associations: [],
+    quotaLimited,
+    authError: false,
+  };
 }
 
 export async function expandQueriesWithWordstat(seedQueries: string[]) {
   if (!WORDSTAT_TOKEN || !seedQueries.length) {
     return {
       items: [] as Array<{ query: string; frequency: number; source: 'wordstat' | 'association' }>,
+      seedFrequencies: [] as Array<{ query: string; frequency: number }>,
       status: WORDSTAT_TOKEN ? 'ok' : 'token_missing',
       processedSeeds: 0,
       seedLimit: WORDSTAT_SEED_LIMIT,
@@ -740,6 +795,13 @@ export async function expandQueriesWithWordstat(seedQueries: string[]) {
     authError = authError || wordstat.authError;
 
     return {
+      seedFrequency:
+        wordstat.requestPhrase && wordstat.totalCount > 0
+          ? {
+              query: wordstat.requestPhrase,
+              frequency: wordstat.totalCount,
+            }
+          : null,
       topRequests: wordstat.topRequests
         .filter((item) => hasTokenOverlap(seed, item.query))
         .map((item) => ({ ...item, source: 'wordstat' as const })),
@@ -750,7 +812,11 @@ export async function expandQueriesWithWordstat(seedQueries: string[]) {
   });
 
   const deduped = new Map<string, { query: string; frequency: number; source: 'wordstat' | 'association' }>();
+  const seedFrequencies = new Map<string, { query: string; frequency: number }>();
   for (const result of results) {
+    if (result.seedFrequency) {
+      seedFrequencies.set(result.seedFrequency.query.toLowerCase(), result.seedFrequency);
+    }
     for (const item of [...result.topRequests, ...result.associations]) {
       const key = item.query.toLowerCase();
       const current = deduped.get(key);
@@ -762,6 +828,7 @@ export async function expandQueriesWithWordstat(seedQueries: string[]) {
 
   return {
     items: Array.from(deduped.values()),
+    seedFrequencies: Array.from(seedFrequencies.values()),
     status: authError ? 'auth_error' : quotaLimited ? 'quota_limited' : 'ok',
     processedSeeds: limitedSeeds.length,
     seedLimit: WORDSTAT_SEED_LIMIT,
