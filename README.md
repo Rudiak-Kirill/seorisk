@@ -8,7 +8,7 @@ SaaS/инструмент для проверки SEO-рисков. Проект
 
 - GitHub: https://github.com/Rudiak-Kirill/seorisk
 - Рабочая область: [cursor-repos](../)
-- Документация агентов: [cursor-repos/docs/agents](../docs/agents/README.md)
+- Документация агентов: [cursor-repos/docs/agents](https://github.com/Rudiak-Kirill/cursor-repos/tree/main/docs/agents)
 - Связанный проект: [rudiak-kirill-site](../rudiak-kirill-site/)
 
 ## Страницы
