@@ -18,6 +18,10 @@
 
 # misc
 .DS_Store
+
+# agents
+agents/**/output/
+agents/**/.env
 *.pem
 
 # debug
