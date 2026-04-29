@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HH Agent</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #222; }
+  header { background: #fff; border-bottom: 1px solid #e0e0e0; padding: 0 24px; display: flex; align-items: center; gap: 32px; }
+  header h1 { font-size: 16px; font-weight: 600; padding: 16px 0; }
+  nav button { background: none; border: none; cursor: pointer; padding: 18px 4px; font-size: 14px; color: #666; border-bottom: 2px solid transparent; }
+  nav button.active { color: #222; border-bottom-color: #222; font-weight: 500; }
+  main { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+
+  .tab { display: none; }
+  .tab.active { display: block; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+  select, input[type=text], input[type=number], textarea { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; width: 100%; }
+  textarea { resize: vertical; min-height: 80px; }
+  button.btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; }
+  button.btn-primary { background: #222; color: #fff; }
+  button.btn-secondary { background: #f0f0f0; color: #444; }
+  button.btn-danger { background: #fee2e2; color: #b91c1c; }
+  button.btn-green { background: #dcfce7; color: #15803d; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 12px; border: 1px solid #e8e8e8; }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+  .card-title { font-weight: 600; font-size: 15px; }
+  .card-sub { font-size: 13px; color: #666; margin-top: 2px; }
+  .card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-yellow { background: #fef9c3; color: #a16207; }
+  .badge-red { background: #fee2e2; color: #b91c1c; }
+  .badge-gray { background: #f3f4f6; color: #6b7280; }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+
+  .skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .skill { background: #f3f4f6; border-radius: 4px; padding: 2px 8px; font-size: 12px; }
+
+  .score-bar { height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 8px; }
+  .score-fill { height: 100%; border-radius: 2px; background: #22c55e; }
+
+  .reason { font-size: 13px; color: #555; margin-top: 6px; font-style: italic; }
+
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: #fff; border-radius: 12px; padding: 24px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
+  .modal h2 { font-size: 16px; margin-bottom: 16px; }
+  .modal textarea { min-height: 200px; }
+
+  .form-grid { display: grid; gap: 12px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  label { font-size: 13px; color: #444; margin-bottom: 4px; display: block; }
+
+  .empty { text-align: center; color: #999; padding: 40px; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ccc; border-top-color: #555; border-radius: 50%; animation: spin .6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toast { position: fixed; bottom: 24px; right: 24px; background: #222; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 14px; z-index: 200; opacity: 0; transition: opacity .2s; }
+  .toast.show { opacity: 1; }
+
+  .import-area { border: 2px dashed #ddd; border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; color: #999; font-size: 14px; transition: border-color .2s; }
+  .import-area:hover { border-color: #aaa; }
+  .import-area input { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>HH Agent</h1>
+  <nav>
+    <button class="active" onclick="switchTab('vacancies')">Вакансии</button>
+    <button onclick="switchTab('responses')">Отклики</button>
+    <button onclick="switchTab('settings')">Настройки</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- Вакансии -->
+<div id="tab-vacancies" class="tab active">
+  <div class="toolbar">
+    <select id="status-filter" onchange="loadVacancies()" style="width:160px">
+      <option value="">Все</option>
+      <option value="scored">Оценённые</option>
+      <option value="new">Новые</option>
+      <option value="applied">Откликнулся</option>
+      <option value="skipped">Пропущенные</option>
+      <option value="hidden">Скрытые</option>
+    </select>
+    <button class="btn btn-secondary" onclick="triggerCollect()">Собрать вакансии</button>
+    <button class="btn btn-secondary" onclick="triggerScore()">Запустить скоринг</button>
+    <span id="vacancies-count" style="margin-left:auto;font-size:13px;color:#888"></span>
+  </div>
+  <div id="vacancies-list"></div>
+</div>
+
+<!-- Отклики -->
+<div id="tab-responses" class="tab">
+  <div id="responses-list"></div>
+</div>
+
+<!-- Настройки -->
+<div id="tab-settings" class="tab">
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><span class="card-title">Профиль соискателя</span></div>
+
+    <div class="import-area" onclick="document.getElementById('pdf-input').click()">
+      <input type="file" id="pdf-input" accept=".pdf" onchange="importPdf(this)">
+      Загрузить резюме (PDF) — данные заполнятся автоматически
+    </div>
+
+    <div class="form-grid" style="margin-top:16px">
+      <div>
+        <label>Должность</label>
+        <input type="text" id="p-position" placeholder="Python Backend разработчик">
+      </div>
+      <div>
+        <label>Навыки (через запятую)</label>
+        <input type="text" id="p-skills" placeholder="Python, FastAPI, PostgreSQL">
+      </div>
+      <div>
+        <label>Опыт (краткое резюме)</label>
+        <textarea id="p-experience" style="min-height:60px" placeholder="3 года коммерческой разработки..."></textarea>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Ожидаемая зарплата ₽</label>
+          <input type="number" id="p-salary" placeholder="200000">
+        </div>
+        <div>
+          <label>Тон письма</label>
+          <select id="p-tone">
+            <option value="formal">Деловой</option>
+            <option value="friendly">Дружелюбный</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Стоп-слова (через запятую)</label>
+        <input type="text" id="p-stopwords" placeholder="1С, PHP, junior">
+      </div>
+      <button class="btn btn-primary" onclick="saveProfile()">Сохранить профиль</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Профили поиска</span>
+    </div>
+    <div id="search-profiles-list" style="margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="sp-keywords" placeholder="Ключевые слова" style="flex:1">
+      <input type="number" id="sp-area" placeholder="Регион" value="1" style="width:90px">
+      <button class="btn btn-primary" onclick="addSearchProfile()">Добавить</button>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<!-- Модалка письма -->
+<div class="modal-overlay" id="letter-modal">
+  <div class="modal">
+    <h2 id="modal-title">Сопроводительное письмо</h2>
+    <p id="modal-sub" style="font-size:13px;color:#888;margin-bottom:12px"></p>
+    <textarea id="modal-letter"></textarea>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
+      <a id="modal-link" target="_blank"><button class="btn btn-primary">Открыть вакансию →</button></a>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  $(`tab-${name}`).classList.add('active');
+  event.target.classList.add('active');
+  if (name === 'vacancies') loadVacancies();
+  if (name === 'responses') loadResponses();
+  if (name === 'settings') loadSettings();
+}
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// --- Вакансии ---
+
+function scoreBadge(score) {
+  if (score === null || score === undefined) return '<span class="badge badge-gray">—</span>';
+  const cls = score >= 70 ? 'badge-green' : score >= 50 ? 'badge-yellow' : 'badge-red';
+  return `<span class="badge ${cls}">${score}</span>`;
+}
+
+function statusBadge(status) {
+  const map = { new:'badge-blue', scored:'badge-green', skipped:'badge-gray', applied:'badge-green', hidden:'badge-gray' };
+  const labels = { new:'новая', scored:'оценена', skipped:'пропущена', applied:'откликнулся', hidden:'скрыта' };
+  return `<span class="badge ${map[status]||'badge-gray'}">${labels[status]||status}</span>`;
+}
+
+async function loadVacancies() {
+  const status = $('status-filter').value;
+  const data = await api('GET', `/api/vacancies?status=${status}&limit=100`);
+  $('vacancies-count').textContent = `${data.total} вакансий`;
+  const list = $('vacancies-list');
+  if (!data.items.length) { list.innerHTML = '<div class="empty">Нет вакансий</div>'; return; }
+  list.innerHTML = data.items.map(v => `
+    <div class="card" id="v-${v.vacancy_id}">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${v.title} ${scoreBadge(v.score)}</div>
+          <div class="card-sub">${v.employer||''} · ${v.salary_text||'зп не указана'} · ${v.experience||''}</div>
+        </div>
+        <div class="card-actions">
+          ${statusBadge(v.status)}
+          ${v.status !== 'hidden' && v.status !== 'applied' ? `
+            <button class="btn btn-secondary" onclick="prepareLetter('${v.vacancy_id}', this)">Письмо</button>
+            <button class="btn btn-danger" onclick="hideVac('${v.vacancy_id}')">Скрыть</button>
+          ` : ''}
+        </div>
+      </div>
+      ${v.score_reason ? `<div class="reason">${v.score_reason}</div>` : ''}
+      ${v.key_skills.length ? `<div class="skills">${v.key_skills.map(s=>`<span class="skill">${s}</span>`).join('')}</div>` : ''}
+      ${v.score !== null ? `<div class="score-bar"><div class="score-fill" style="width:${v.score}%"></div></div>` : ''}
+    </div>
+  `).join('');
+}
+
+async function prepareLetter(vacancyId, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    const data = await api('POST', '/api/prepare', { vacancy_id: vacancyId });
+    showModal(data);
+  } catch(e) {
+    toast('Ошибка: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Письмо';
+  }
+}
+
+async function hideVac(vacancyId) {
+  await api('PATCH', `/api/vacancies/${vacancyId}/hide`);
+  $(`v-${vacancyId}`).remove();
+  toast('Скрыто');
+}
+
+async function triggerCollect() {
+  toast('Запускаю сбор...');
+  await api('POST', '/api/vacancies/collect');
+  toast('Сбор завершён');
+  loadVacancies();
+}
+
+async function triggerScore() {
+  toast('Запускаю скоринг...');
+  await api('POST', '/api/vacancies/score');
+  toast('Скоринг завершён');
+  loadVacancies();
+}
+
+// --- Модалка письма ---
+
+function showModal(data) {
+  $('modal-title').textContent = data.title;
+  $('modal-sub').textContent = data.url;
+  $('modal-letter').value = data.cover_letter;
+  $('modal-link').href = data.url;
+  $('letter-modal').classList.add('open');
+}
+
+function closeModal() {
+  $('letter-modal').classList.remove('open');
+}
+
+$('letter-modal').addEventListener('click', e => { if (e.target === $('letter-modal')) closeModal(); });
+
+// --- Отклики ---
+
+async function loadResponses() {
+  const data = await api('GET', '/api/negotiations');
+  const list = $('responses-list');
+  if (!data.length) { list.innerHTML = '<div class="empty">Нет откликов</div>'; return; }
+  list.innerHTML = data.map(n => `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${n.title}</div>
+          <div class="card-sub">${n.employer||''}</div>
+        </div>
+        <div class="card-actions">
+          <span class="badge ${n.status==='applied'?'badge-green':'badge-gray'}">${n.status==='applied'?'Откликнулся':'Черновик'}</span>
+          <a href="${n.url}" target="_blank"><button class="btn btn-secondary">Открыть →</button></a>
+          ${n.status !== 'applied' ? `<button class="btn btn-green" onclick="markApplied('${n.vacancy_id}', this)">Отмечено</button>` : ''}
+        </div>
+      </div>
+      <textarea style="margin-top:10px;min-height:120px;font-size:13px" readonly>${n.cover_letter}</textarea>
+    </div>
+  `).join('');
+}
+
+async function markApplied(vacancyId, btn) {
+  await api('PATCH', `/api/vacancies/${vacancyId}/applied`);
+  toast('Отмечено как откликнулся');
+  loadResponses();
+}
+
+// --- Настройки ---
+
+async function loadSettings() {
+  const data = await api('GET', '/api/settings');
+  if (data.profile) {
+    const p = data.profile;
+    $('p-position').value = p.position || '';
+    $('p-skills').value = p.skills || '';
+    $('p-experience').value = p.experience_summary || '';
+    $('p-salary').value = p.salary_expected || '';
+    $('p-tone').value = p.cover_letter_tone || 'formal';
+    $('p-stopwords').value = p.stop_words || '';
+  }
+  renderSearchProfiles(data.search_profiles || []);
+}
+
+function renderSearchProfiles(profiles) {
+  $('search-profiles-list').innerHTML = profiles.length
+    ? profiles.map(p => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span style="flex:1;font-size:14px">${p.keywords} <span style="color:#999">(area ${p.area})</span></span>
+          <button class="btn btn-danger" onclick="deleteSearchProfile(${p.id})">Удалить</button>
+        </div>
+      `).join('')
+    : '<div style="color:#999;font-size:13px;margin-bottom:8px">Нет профилей поиска</div>';
+}
+
+async function saveProfile() {
+  await api('PUT', '/api/settings/profile', {
+    position: $('p-position').value,
+    skills: $('p-skills').value,
+    experience_summary: $('p-experience').value,
+    salary_expected: $('p-salary').value ? parseInt($('p-salary').value) : null,
+    cover_letter_tone: $('p-tone').value,
+    stop_words: $('p-stopwords').value,
+  });
+  toast('Профиль сохранён');
+}
+
+async function addSearchProfile() {
+  const keywords = $('sp-keywords').value.trim();
+  if (!keywords) return;
+  await api('POST', '/api/settings/search-profiles', { keywords, area: parseInt($('sp-area').value) || 1 });
+  $('sp-keywords').value = '';
+  toast('Профиль добавлен');
+  loadSettings();
+}
+
+async function deleteSearchProfile(id) {
+  await api('DELETE', `/api/settings/search-profiles/${id}`);
+  toast('Удалено');
+  loadSettings();
+}
+
+async function importPdf(input) {
+  const file = input.files[0];
+  if (!file) return;
+  toast('Читаю резюме...');
+  const form = new FormData();
+  form.append('file', file);
+  const r = await fetch('/api/settings/profile/import-pdf', { method: 'POST', body: form });
+  const data = await r.json();
+  if (data.profile) {
+    const p = data.profile;
+    if (p.position) $('p-position').value = p.position;
+    if (p.skills) $('p-skills').value = p.skills;
+    if (p.experience_summary) $('p-experience').value = p.experience_summary;
+    if (p.salary_expected) $('p-salary').value = p.salary_expected;
+    toast('Данные из резюме загружены — проверь и сохрани');
+  }
+}
+
+// Загрузка при старте
+loadVacancies();
+</script>
+</body>
+</html>
