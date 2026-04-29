@@ -1,6 +1,14 @@
-# SEO Risk Check (SaaS Starter)
+# SEO Risk Check
 
-Витрина на шаблоне **Next.js SaaS Starter** + Python‑движок проверок в `api/check.py`.
+SaaS/инструмент для проверки SEO-рисков. Проект использует Next.js и Python-движок проверок в `api/check.py`.
+
+Репозиторий ведётся как самостоятельный внешний ресурс внутри рабочей области `cursor-repos`.
+
+## Ссылки
+
+- GitHub: https://github.com/Rudiak-Kirill/seorisk
+- Рабочая область: [cursor-repos](../)
+- Связанный проект: [rudiak-kirill-site](../rudiak-kirill-site/)
 
 ## Страницы
 
@@ -10,26 +18,26 @@
 
 ## Переменные окружения
 
-Создайте `.env.local`:
+Создать `.env.local`:
 
-```
+```env
 PY_ENGINE_URL=https://seorisk.vercel.app/api/check.py
 ```
 
-Можно указывать любой URL, который принимает `?url=...` и возвращает JSON.
+Можно указать любой URL, который принимает `?url=...` и возвращает JSON.
 
 ## Локальный запуск
 
-```
+```bash
 npm install
 npm run dev
 ```
 
-Открой `http://localhost:3000`.
+Открыть `http://localhost:3000`.
 
 ## Деплой на Vercel
 
-1. Добавь `PY_ENGINE_URL` в Environment Variables проекта.
-2. Сделай deploy (push в `main`).
+1. Добавить `PY_ENGINE_URL` в Environment Variables проекта.
+2. Сделать deploy через push в `main`.
 
-Python‑функции остаются в `api/` и не меняются.
+Python-функции остаются в `api/`.
