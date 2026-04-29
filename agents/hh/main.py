@@ -283,6 +283,7 @@ def _set_status(vacancy_id: str, status: str, profile_id: int | None = None):
 
 
 def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None) -> dict:
+    work_format = _work_format(v)
     return {
         "id": v.id,
         "profile_id": match.profile_id if match else None,
@@ -294,6 +295,7 @@ def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None) -> dict:
         "description": v.description,
         "experience": v.experience,
         "employment": v.employment,
+        "work_format": work_format,
         "key_skills": json.loads(v.key_skills) if v.key_skills else [],
         "score": match.score if match else v.score,
         "score_reason": match.score_reason if match else v.score_reason,
@@ -304,6 +306,7 @@ def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None) -> dict:
 
 
 def _vacancy_flags(v: Vacancy) -> dict:
+    work_format = _work_format(v)
     salary = (v.salary_text or "").strip().lower()
     employment = (v.employment or "").strip().lower()
     skills = " ".join(json.loads(v.key_skills) if v.key_skills else [])
@@ -317,13 +320,34 @@ def _vacancy_flags(v: Vacancy) -> dict:
     ]).lower()
 
     has_salary = bool(salary and salary not in {"не указан", "не указана", "зп не указана"})
-    is_remote = any(token in haystack for token in ["удален", "удалён", "remote", "дистанц", "home office"])
+    is_remote = work_format == "удалённо"
     is_part_time = (
         any(token in employment for token in ["частич", "проект", "разовое задание"]) or
         any(token in haystack for token in ["частичная занятость", "неполный день", "part-time", "part time"])
     )
 
     return {"has_salary": has_salary, "remote": is_remote, "part_time": is_part_time}
+
+
+def _work_format(v: Vacancy) -> str:
+    haystack = " ".join([
+        v.title or "",
+        v.employer or "",
+        v.employment or "",
+        v.description or "",
+    ]).lower()
+
+    remote_tokens = ["удален", "удалён", "remote", "дистанц", "home office"]
+    hybrid_tokens = ["гибрид", "hybrid"]
+    office_tokens = ["офис", "office", "на месте"]
+
+    if any(token in haystack for token in remote_tokens):
+        return "удалённо"
+    if any(token in haystack for token in hybrid_tokens):
+        return "гибрид"
+    if any(token in haystack for token in office_tokens):
+        return "офис"
+    return "не указан"
 
 
 def _profile_dict(p: UserProfile) -> dict:

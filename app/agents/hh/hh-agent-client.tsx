@@ -40,6 +40,7 @@ type Vacancy = {
   description: string | null;
   experience: string | null;
   employment: string | null;
+  work_format: string | null;
   key_skills: string[];
   score: number | null;
   score_reason: string | null;
@@ -499,6 +500,7 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
             <th className="px-3 py-3">Вакансия</th>
             <th className="px-3 py-3">ЗП</th>
             <th className="px-3 py-3">Флаги</th>
+            <th className="px-3 py-3">Формат работы</th>
             <th className="px-3 py-3">Занятость</th>
             <th className="px-3 py-3">Опыт</th>
             <th className="px-3 py-3">Скиллы</th>
@@ -539,6 +541,7 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
                   <Flag label="R" active={item.flags.remote} />
                   <Flag label="½" active={item.flags.part_time} warn />
                 </td>
+                <td className="px-3 py-3">{item.work_format || 'не указан'}</td>
                 <td className="px-3 py-3">{item.employment || '-'}</td>
                 <td className="px-3 py-3">{item.experience || '-'}</td>
                 <td className="max-w-xs px-3 py-3 text-xs text-gray-600">{item.key_skills.slice(0, 8).join(', ') || '-'}</td>
