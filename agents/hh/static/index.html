@@ -47,6 +47,22 @@
 
   .reason { font-size: 13px; color: #555; margin-top: 6px; font-style: italic; }
 
+  .table-wrap { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; overflow-x: auto; }
+  .vacancy-table { width: 100%; border-collapse: collapse; min-width: 980px; }
+  .vacancy-table th, .vacancy-table td { padding: 10px 12px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; font-size: 13px; }
+  .vacancy-table th { background: #fafafa; color: #666; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+  .vacancy-table tr:last-child td { border-bottom: 0; }
+  .vacancy-table .title-cell { min-width: 280px; }
+  .vacancy-table .flags-cell { white-space: nowrap; }
+  .vacancy-table .actions-cell { white-space: nowrap; text-align: right; }
+  .vacancy-title-link { color: #111; font-weight: 600; text-decoration: none; }
+  .vacancy-title-link:hover { text-decoration: underline; }
+  .meta-line { color: #666; margin-top: 3px; }
+  .flag { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 22px; margin-right: 4px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #f3f4f6; color: #9ca3af; }
+  .flag-on { background: #dcfce7; color: #15803d; }
+  .flag-warn { background: #fef9c3; color: #a16207; }
+  .compact-skills { max-width: 260px; color: #555; line-height: 1.35; }
+
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; align-items: center; justify-content: center; }
   .modal-overlay.open { display: flex; }
   .modal { background: #fff; border-radius: 12px; padding: 24px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
@@ -85,6 +101,7 @@
 <!-- Вакансии -->
 <div id="tab-vacancies" class="tab active">
   <div class="toolbar">
+    <select id="profile-select" onchange="setActiveProfile(this.value)" style="width:220px"></select>
     <select id="status-filter" onchange="loadVacancies()" style="width:160px">
       <option value="">Все</option>
       <option value="scored">Оценённые</option>
@@ -92,6 +109,21 @@
       <option value="applied">Откликнулся</option>
       <option value="skipped">Пропущенные</option>
       <option value="hidden">Скрытые</option>
+    </select>
+    <select id="salary-filter" onchange="renderVacancies()" style="width:130px">
+      <option value="">ЗП: все</option>
+      <option value="yes">Есть ЗП</option>
+      <option value="no">Без ЗП</option>
+    </select>
+    <select id="remote-filter" onchange="renderVacancies()" style="width:145px">
+      <option value="">Удалёнка: все</option>
+      <option value="yes">Удалёнка</option>
+      <option value="no">Не удалёнка</option>
+    </select>
+    <select id="part-filter" onchange="renderVacancies()" style="width:170px">
+      <option value="">Занятость: все</option>
+      <option value="yes">Частичная/проект</option>
+      <option value="no">Не частичная</option>
     </select>
     <button class="btn btn-secondary" onclick="triggerCollect()">Собрать вакансии</button>
     <button class="btn btn-secondary" onclick="triggerScore()">Запустить скоринг</button>
@@ -110,12 +142,22 @@
   <div class="card" style="margin-bottom:16px">
     <div class="card-header"><span class="card-title">Профиль соискателя</span></div>
 
+    <div class="toolbar">
+      <select id="settings-profile-select" onchange="setActiveProfile(this.value)" style="width:260px"></select>
+      <button class="btn btn-secondary" onclick="newProfile()">Новое резюме</button>
+      <button class="btn btn-danger" onclick="deleteActiveProfile()">Удалить резюме</button>
+    </div>
+
     <div class="import-area" onclick="document.getElementById('pdf-input').click()">
       <input type="file" id="pdf-input" accept=".pdf" onchange="importPdf(this)">
       Загрузить резюме (PDF) — данные заполнятся автоматически
     </div>
 
     <div class="form-grid" style="margin-top:16px">
+      <div>
+        <label>Название резюме</label>
+        <input type="text" id="p-name" placeholder="SEO / Python / Руководитель проектов">
+      </div>
       <div>
         <label>Должность</label>
         <input type="text" id="p-position" placeholder="Python Backend разработчик">
@@ -200,14 +242,53 @@ function toast(msg) {
 }
 
 async function api(method, path, body) {
+  const base = window.location.pathname.startsWith('/agents/hh') ? '/agents/hh' : '';
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(path, opts);
+  const r = await fetch(`${base}${path}`, opts);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
 // --- Вакансии ---
+
+let currentVacancies = [];
+let profiles = [];
+let activeProfileId = null;
+
+function profileQuery() {
+  return activeProfileId ? `profile_id=${encodeURIComponent(activeProfileId)}` : '';
+}
+
+function profileJoin(path) {
+  const q = profileQuery();
+  if (!q) return path;
+  return path.includes('?') ? `${path}&${q}` : `${path}?${q}`;
+}
+
+function renderProfileSelects() {
+  const html = profiles.length
+    ? profiles.map(p => `<option value="${p.id}">${p.name || p.position}</option>`).join('')
+    : '<option value="">Нет резюме</option>';
+  ['profile-select', 'settings-profile-select'].forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    el.innerHTML = html;
+    el.value = activeProfileId || '';
+  });
+}
+
+function activeProfile() {
+  return profiles.find(p => String(p.id) === String(activeProfileId)) || null;
+}
+
+function setActiveProfile(id) {
+  activeProfileId = id ? Number(id) : null;
+  renderProfileSelects();
+  fillProfileForm(activeProfile());
+  renderSearchProfiles(window.allSearchProfiles || []);
+  loadVacancies();
+}
 
 function scoreBadge(score) {
   if (score === null || score === undefined) return '<span class="badge badge-gray">—</span>';
@@ -223,37 +304,91 @@ function statusBadge(status) {
 
 async function loadVacancies() {
   const status = $('status-filter').value;
-  const data = await api('GET', `/api/vacancies?status=${status}&limit=100`);
-  $('vacancies-count').textContent = `${data.total} вакансий`;
+  const data = await api('GET', profileJoin(`/api/vacancies?status=${status}&limit=100`));
+  currentVacancies = data.items || [];
+  renderVacancies(data.total);
+}
+
+function flagValue(v, key) {
+  return Boolean(v.flags && v.flags[key]);
+}
+
+function passFlagFilter(v, selectId, key) {
+  const value = $(selectId).value;
+  if (!value) return true;
+  return flagValue(v, key) === (value === 'yes');
+}
+
+function flag(label, active, warn = false) {
+  const cls = active ? (warn ? 'flag flag-warn' : 'flag flag-on') : 'flag';
+  return `<span class="${cls}">${label}</span>`;
+}
+
+function renderVacancies(totalFromApi) {
+  const filtered = currentVacancies.filter(v =>
+    passFlagFilter(v, 'salary-filter', 'has_salary') &&
+    passFlagFilter(v, 'remote-filter', 'remote') &&
+    passFlagFilter(v, 'part-filter', 'part_time')
+  );
+
+  const total = totalFromApi === undefined ? currentVacancies.length : totalFromApi;
+  $('vacancies-count').textContent = `${filtered.length} из ${total} вакансий`;
   const list = $('vacancies-list');
-  if (!data.items.length) { list.innerHTML = '<div class="empty">Нет вакансий</div>'; return; }
-  list.innerHTML = data.items.map(v => `
-    <div class="card" id="v-${v.vacancy_id}">
-      <div class="card-header">
-        <div>
-          <div class="card-title">${v.title} ${scoreBadge(v.score)}</div>
-          <div class="card-sub">${v.employer||''} · ${v.salary_text||'зп не указана'} · ${v.experience||''}</div>
-        </div>
-        <div class="card-actions">
-          ${statusBadge(v.status)}
-          ${v.status !== 'hidden' && v.status !== 'applied' ? `
-            <button class="btn btn-secondary" onclick="prepareLetter('${v.vacancy_id}', this)">Письмо</button>
-            <button class="btn btn-danger" onclick="hideVac('${v.vacancy_id}')">Скрыть</button>
-          ` : ''}
-        </div>
-      </div>
-      ${v.score_reason ? `<div class="reason">${v.score_reason}</div>` : ''}
-      ${v.key_skills.length ? `<div class="skills">${v.key_skills.map(s=>`<span class="skill">${s}</span>`).join('')}</div>` : ''}
-      ${v.score !== null ? `<div class="score-bar"><div class="score-fill" style="width:${v.score}%"></div></div>` : ''}
+  if (!filtered.length) { list.innerHTML = '<div class="empty">Нет вакансий по выбранным фильтрам</div>'; return; }
+  list.innerHTML = `
+    <div class="table-wrap">
+      <table class="vacancy-table">
+        <thead>
+          <tr>
+            <th>Вакансия</th>
+            <th>ЗП</th>
+            <th>Флаги</th>
+            <th>Занятость</th>
+            <th>Опыт</th>
+            <th>Скиллы</th>
+            <th>Скор</th>
+            <th>Статус</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.map(v => `
+            <tr id="v-${v.vacancy_id}">
+              <td class="title-cell">
+                <a class="vacancy-title-link" href="${v.url}" target="_blank">${v.title}</a>
+                <div class="meta-line">${v.employer || ''}</div>
+                ${v.score_reason ? `<div class="reason">${v.score_reason}</div>` : ''}
+              </td>
+              <td>${v.salary_text || 'не указана'}</td>
+              <td class="flags-cell">
+                ${flag('₽', flagValue(v, 'has_salary'))}
+                ${flag('R', flagValue(v, 'remote'))}
+                ${flag('½', flagValue(v, 'part_time'), true)}
+              </td>
+              <td>${v.employment || '—'}</td>
+              <td>${v.experience || '—'}</td>
+              <td><div class="compact-skills">${(v.key_skills || []).slice(0, 8).join(', ') || '—'}</div></td>
+              <td>${scoreBadge(v.score)}</td>
+              <td>${statusBadge(v.status)}</td>
+              <td class="actions-cell">
+                ${v.status !== 'hidden' && v.status !== 'applied' ? `
+                  <button class="btn btn-secondary" onclick="prepareLetter('${v.vacancy_id}', this)">Письмо</button>
+                  <button class="btn btn-danger" onclick="hideVac('${v.vacancy_id}')">Скрыть</button>
+                ` : ''}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     </div>
-  `).join('');
+  `;
 }
 
 async function prepareLetter(vacancyId, btn) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
   try {
-    const data = await api('POST', '/api/prepare', { vacancy_id: vacancyId });
+    const data = await api('POST', '/api/prepare', { vacancy_id: vacancyId, profile_id: activeProfileId });
     showModal(data);
   } catch(e) {
     toast('Ошибка: ' + e.message);
@@ -264,21 +399,21 @@ async function prepareLetter(vacancyId, btn) {
 }
 
 async function hideVac(vacancyId) {
-  await api('PATCH', `/api/vacancies/${vacancyId}/hide`);
+  await api('PATCH', profileJoin(`/api/vacancies/${vacancyId}/hide`));
   $(`v-${vacancyId}`).remove();
   toast('Скрыто');
 }
 
 async function triggerCollect() {
   toast('Запускаю сбор...');
-  await api('POST', '/api/vacancies/collect');
+  await api('POST', '/api/vacancies/collect', { profile_id: activeProfileId });
   toast('Сбор завершён');
   loadVacancies();
 }
 
 async function triggerScore() {
   toast('Запускаю скоринг...');
-  await api('POST', '/api/vacancies/score');
+  await api('POST', '/api/vacancies/score', { profile_id: activeProfileId });
   toast('Скоринг завершён');
   loadVacancies();
 }
@@ -302,7 +437,7 @@ $('letter-modal').addEventListener('click', e => { if (e.target === $('letter-mo
 // --- Отклики ---
 
 async function loadResponses() {
-  const data = await api('GET', '/api/negotiations');
+  const data = await api('GET', profileJoin('/api/negotiations'));
   const list = $('responses-list');
   if (!data.length) { list.innerHTML = '<div class="empty">Нет откликов</div>'; return; }
   list.innerHTML = data.map(n => `
@@ -324,7 +459,7 @@ async function loadResponses() {
 }
 
 async function markApplied(vacancyId, btn) {
-  await api('PATCH', `/api/vacancies/${vacancyId}/applied`);
+  await api('PATCH', profileJoin(`/api/vacancies/${vacancyId}/applied`));
   toast('Отмечено как откликнулся');
   loadResponses();
 }
@@ -333,21 +468,28 @@ async function markApplied(vacancyId, btn) {
 
 async function loadSettings() {
   const data = await api('GET', '/api/settings');
-  if (data.profile) {
-    const p = data.profile;
-    $('p-position').value = p.position || '';
-    $('p-skills').value = p.skills || '';
-    $('p-experience').value = p.experience_summary || '';
-    $('p-salary').value = p.salary_expected || '';
-    $('p-tone').value = p.cover_letter_tone || 'formal';
-    $('p-stopwords').value = p.stop_words || '';
-  }
-  renderSearchProfiles(data.search_profiles || []);
+  profiles = data.profiles || [];
+  window.allSearchProfiles = data.search_profiles || [];
+  if (!activeProfileId && profiles.length) activeProfileId = profiles[0].id;
+  renderProfileSelects();
+  fillProfileForm(activeProfile());
+  renderSearchProfiles(window.allSearchProfiles);
+}
+
+function fillProfileForm(p) {
+  $('p-name').value = p?.name || '';
+  $('p-position').value = p?.position || '';
+  $('p-skills').value = p?.skills || '';
+  $('p-experience').value = p?.experience_summary || '';
+  $('p-salary').value = p?.salary_expected || '';
+  $('p-tone').value = p?.cover_letter_tone || 'formal';
+  $('p-stopwords').value = p?.stop_words || '';
 }
 
 function renderSearchProfiles(profiles) {
-  $('search-profiles-list').innerHTML = profiles.length
-    ? profiles.map(p => `
+  const filtered = (profiles || []).filter(p => String(p.profile_id || '') === String(activeProfileId || ''));
+  $('search-profiles-list').innerHTML = filtered.length
+    ? filtered.map(p => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <span style="flex:1;font-size:14px">${p.keywords} <span style="color:#999">(area ${p.area})</span></span>
           <button class="btn btn-danger" onclick="deleteSearchProfile(${p.id})">Удалить</button>
@@ -357,7 +499,9 @@ function renderSearchProfiles(profiles) {
 }
 
 async function saveProfile() {
-  await api('PUT', '/api/settings/profile', {
+  const result = await api('PUT', '/api/settings/profile', {
+    id: activeProfileId,
+    name: $('p-name').value,
     position: $('p-position').value,
     skills: $('p-skills').value,
     experience_summary: $('p-experience').value,
@@ -365,13 +509,32 @@ async function saveProfile() {
     cover_letter_tone: $('p-tone').value,
     stop_words: $('p-stopwords').value,
   });
+  activeProfileId = result.profile.id;
   toast('Профиль сохранён');
+  await loadSettings();
+  await loadVacancies();
+}
+
+function newProfile() {
+  activeProfileId = null;
+  fillProfileForm(null);
+  renderProfileSelects();
+  renderSearchProfiles(window.allSearchProfiles || []);
+}
+
+async function deleteActiveProfile() {
+  if (!activeProfileId) return;
+  await api('DELETE', `/api/settings/profile/${activeProfileId}`);
+  activeProfileId = null;
+  toast('Резюме удалено');
+  await loadSettings();
+  await loadVacancies();
 }
 
 async function addSearchProfile() {
   const keywords = $('sp-keywords').value.trim();
   if (!keywords) return;
-  await api('POST', '/api/settings/search-profiles', { keywords, area: parseInt($('sp-area').value) || 1 });
+  await api('POST', '/api/settings/search-profiles', { profile_id: activeProfileId, keywords, area: parseInt($('sp-area').value) || 1 });
   $('sp-keywords').value = '';
   toast('Профиль добавлен');
   loadSettings();
@@ -384,15 +547,17 @@ async function deleteSearchProfile(id) {
 }
 
 async function importPdf(input) {
+  const base = window.location.pathname.startsWith('/agents/hh') ? '/agents/hh' : '';
   const file = input.files[0];
   if (!file) return;
   toast('Читаю резюме...');
   const form = new FormData();
   form.append('file', file);
-  const r = await fetch('/api/settings/profile/import-pdf', { method: 'POST', body: form });
+  const r = await fetch(`${base}/api/settings/profile/import-pdf`, { method: 'POST', body: form });
   const data = await r.json();
   if (data.profile) {
     const p = data.profile;
+    if (p.name) $('p-name').value = p.name;
     if (p.position) $('p-position').value = p.position;
     if (p.skills) $('p-skills').value = p.skills;
     if (p.experience_summary) $('p-experience').value = p.experience_summary;
@@ -402,7 +567,10 @@ async function importPdf(input) {
 }
 
 // Загрузка при старте
-loadVacancies();
+(async function initApp() {
+  await loadSettings();
+  await loadVacancies();
+})();
 </script>
 </body>
 </html>

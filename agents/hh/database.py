@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import config  # noqa: F401
@@ -13,6 +14,52 @@ engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    migrate_db()
+
+
+def migrate_db() -> None:
+    with engine.begin() as conn:
+        columns = _columns(conn, "user_profile")
+        if "name" not in columns:
+            conn.execute(text("ALTER TABLE user_profile ADD COLUMN name TEXT"))
+
+        columns = _columns(conn, "search_profiles")
+        if "profile_id" not in columns:
+            conn.execute(text("ALTER TABLE search_profiles ADD COLUMN profile_id INTEGER"))
+
+        columns = _columns(conn, "negotiations")
+        if "profile_id" not in columns:
+            conn.execute(text("ALTER TABLE negotiations ADD COLUMN profile_id INTEGER"))
+
+        profile_id = conn.execute(text("SELECT id FROM user_profile ORDER BY id LIMIT 1")).scalar()
+        if profile_id is not None:
+            conn.execute(
+                text("UPDATE user_profile SET name = COALESCE(name, position) WHERE id = :profile_id"),
+                {"profile_id": profile_id},
+            )
+            conn.execute(
+                text("UPDATE search_profiles SET profile_id = :profile_id WHERE profile_id IS NULL"),
+                {"profile_id": profile_id},
+            )
+            conn.execute(
+                text("UPDATE negotiations SET profile_id = :profile_id WHERE profile_id IS NULL"),
+                {"profile_id": profile_id},
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT OR IGNORE INTO vacancy_matches
+                        (profile_id, vacancy_id, score, score_reason, status, created_at)
+                    SELECT :profile_id, vacancy_id, score, score_reason, status, created_at
+                    FROM vacancies
+                    """
+                ),
+                {"profile_id": profile_id},
+            )
+
+
+def _columns(conn, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
 
 
 def get_session() -> Session:

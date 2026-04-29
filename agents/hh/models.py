@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -12,6 +12,7 @@ class SearchProfile(Base):
     __tablename__ = "search_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     keywords: Mapped[str] = mapped_column(Text)
     area: Mapped[int] = mapped_column(Integer, default=1)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -21,6 +22,7 @@ class UserProfile(Base):
     __tablename__ = "user_profile"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[str] = mapped_column(Text)
     skills: Mapped[str] = mapped_column(Text)
     experience_summary: Mapped[str] = mapped_column(Text)
@@ -49,10 +51,24 @@ class Vacancy(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class VacancyMatch(Base):
+    __tablename__ = "vacancy_matches"
+    __table_args__ = (UniqueConstraint("profile_id", "vacancy_id", name="uq_vacancy_match_profile_vacancy"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_id: Mapped[int] = mapped_column(Integer)
+    vacancy_id: Mapped[str] = mapped_column(Text)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="new")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class Negotiation(Base):
     __tablename__ = "negotiations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     vacancy_id: Mapped[str] = mapped_column(Text)
     cover_letter: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="draft")

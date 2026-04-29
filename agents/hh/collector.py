@@ -1,6 +1,6 @@
 """
-Collector — собирает вакансии из RSS HH.ru и парсит страницы.
-Запуск вручную: python collector.py
+Collects vacancies from HH.ru RSS and stores profile-specific matches.
+Run manually: python collector.py
 """
 
 import json
@@ -14,13 +14,13 @@ from bs4 import BeautifulSoup
 from sqlalchemy.dialects.sqlite import insert
 
 from database import get_session, init_db
-from models import SearchProfile, Vacancy
+from models import SearchProfile, UserProfile, Vacancy, VacancyMatch
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-REQUEST_DELAY = 0.5  # сек между запросами страниц
+REQUEST_DELAY = 0.5
 
 
 def fetch_rss(keywords: str, area: int) -> list[dict]:
@@ -80,58 +80,77 @@ def already_seen(session, vacancy_ids: list[str]) -> set[str]:
     return {r.vacancy_id for r in rows}
 
 
-def run() -> None:
+def run(profile_id: int | None = None) -> None:
     init_db()
 
     with get_session() as session:
-        profiles = session.query(SearchProfile).filter_by(active=True).all()
+        q = session.query(SearchProfile).filter_by(active=True)
+        if profile_id:
+            q = q.filter(SearchProfile.profile_id == profile_id)
+        profiles = q.all()
+        default_profile_id = session.query(UserProfile.id).order_by(UserProfile.id).scalar()
 
     if not profiles:
-        log.warning("Нет активных профилей поиска. Добавь через /api/settings/search-profiles")
+        log.warning("No active search profiles")
         return
 
     total_new = 0
 
-    with httpx.Client(headers=HEADERS, follow_redirects=True, timeout=10) as client:
-        for profile in profiles:
-            log.info(f"Профиль: '{profile.keywords}' area={profile.area}")
+    for profile in profiles:
+        owner_profile_id = profile.profile_id or default_profile_id
+        if not owner_profile_id:
+            log.warning("Search profile %s has no resume profile", profile.id)
+            continue
 
-            try:
-                rss_items = fetch_rss(profile.keywords, profile.area)
-            except Exception as e:
-                log.error(f"RSS ошибка: {e}")
+        log.info("Profile %s: '%s' area=%s", owner_profile_id, profile.keywords, profile.area)
+
+        try:
+            rss_items = fetch_rss(profile.keywords, profile.area)
+        except Exception as e:
+            log.error("RSS error: %s", e)
+            continue
+
+        log.info("  RSS: %s vacancies", len(rss_items))
+        vacancy_ids = [item["vacancy_id"] for item in rss_items if item["vacancy_id"]]
+
+        with get_session() as session:
+            seen = already_seen(session, vacancy_ids)
+
+        new_items = [item for item in rss_items if item["vacancy_id"] not in seen]
+        log.info("  New global vacancies: %s", len(new_items))
+
+        for item in rss_items:
+            vid = item["vacancy_id"]
+            if not vid:
                 continue
 
-            log.info(f"  RSS: {len(rss_items)} вакансий")
-
-            vacancy_ids = [item["vacancy_id"] for item in rss_items if item["vacancy_id"]]
-
-            with get_session() as session:
-                seen = already_seen(session, vacancy_ids)
-
-            new_items = [item for item in rss_items if item["vacancy_id"] not in seen]
-            log.info(f"  Новых: {len(new_items)}")
-
-            for item in new_items:
-                vid = item["vacancy_id"]
+            if vid not in seen:
                 try:
                     detail = parse_vacancy_page(vid)
                     time.sleep(REQUEST_DELAY)
                 except Exception as e:
-                    log.warning(f"  Пропускаю {vid}: {e}")
+                    log.warning("  Skipping %s: %s", vid, e)
                     continue
 
                 row = {**item, **detail, "status": "new"}
-
                 with get_session() as session:
                     stmt = insert(Vacancy).values(**row).on_conflict_do_nothing(index_elements=["vacancy_id"])
                     session.execute(stmt)
                     session.commit()
 
-                log.info(f"  + {vid} «{item['title']}»")
+                log.info("  + %s '%s'", vid, item["title"])
                 total_new += 1
 
-    log.info(f"Collector завершён. Добавлено вакансий: {total_new}")
+            with get_session() as session:
+                stmt = insert(VacancyMatch).values(
+                    profile_id=owner_profile_id,
+                    vacancy_id=vid,
+                    status="new",
+                ).on_conflict_do_nothing(index_elements=["profile_id", "vacancy_id"])
+                session.execute(stmt)
+                session.commit()
+
+    log.info("Collector finished. Added global vacancies: %s", total_new)
 
 
 if __name__ == "__main__":

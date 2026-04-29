@@ -1,6 +1,6 @@
 """
-Responder — генерирует сопроводительное письмо через OpenAI.
-Вызывается из API: POST /api/prepare
+Generates a cover letter for a vacancy and a selected resume profile.
+Called from API: POST /api/prepare
 """
 
 import json
@@ -22,7 +22,7 @@ TONES = {
     "friendly": "дружелюбный, живой, но уважительный",
 }
 
-SYSTEM_PROMPT = """Ты — карьерный ассистент. Напиши сопроводительное письмо для отклика на вакансию.
+SYSTEM_PROMPT = """Ты карьерный ассистент. Напиши сопроводительное письмо для отклика на вакансию.
 
 Профиль соискателя:
 {profile}
@@ -30,15 +30,16 @@ SYSTEM_PROMPT = """Ты — карьерный ассистент. Напиши 
 Требования к письму:
 - Тон: {tone}
 - Длина: 3-4 абзаца, не больше 300 слов
-- Структура: почему интересна вакансия → релевантный опыт → конкретный навык из вакансии → призыв к действию
+- Структура: почему интересна вакансия -> релевантный опыт -> конкретный навык из вакансии -> призыв к действию
 - Не копировать описание вакансии дословно
-- Не использовать шаблонные фразы («я идеальный кандидат», «мечтаю работать у вас»)
+- Не использовать шаблонные фразы
 - Писать от первого лица, на русском языке
 - Вернуть только текст письма, без заголовков и подписи"""
 
 
 def build_profile_text(profile: UserProfile) -> str:
     lines = [
+        f"Название резюме: {profile.name or profile.position}",
         f"Должность: {profile.position}",
         f"Навыки: {profile.skills}",
         f"Опыт: {profile.experience_summary}",
@@ -52,9 +53,9 @@ def build_vacancy_prompt(vacancy: Vacancy) -> str:
     skills = json.loads(vacancy.key_skills) if vacancy.key_skills else []
     lines = [
         f"Вакансия: {vacancy.title}",
-        f"Компания: {vacancy.employer or '—'}",
+        f"Компания: {vacancy.employer or '-'}",
         f"Зарплата: {vacancy.salary_text or 'не указана'}",
-        f"Навыки: {', '.join(skills) if skills else '—'}",
+        f"Навыки: {', '.join(skills) if skills else '-'}",
         "",
         "Описание:",
         (vacancy.description or "")[:2000],
@@ -62,14 +63,13 @@ def build_vacancy_prompt(vacancy: Vacancy) -> str:
     return "\n".join(lines)
 
 
-def generate_letter(vacancy_id: str) -> dict:
-    """
-    Генерирует сопроводительное письмо для вакансии.
-    Возвращает: { vacancy_id, title, url, cover_letter }
-    """
+def generate_letter(vacancy_id: str, profile_id: int | None = None) -> dict:
     with get_session() as session:
         vacancy = session.query(Vacancy).filter_by(vacancy_id=vacancy_id).first()
-        profile = session.query(UserProfile).first()
+        q = session.query(UserProfile)
+        if profile_id:
+            q = q.filter(UserProfile.id == profile_id)
+        profile = q.order_by(UserProfile.id).first()
 
     if not vacancy:
         raise ValueError(f"Вакансия {vacancy_id} не найдена")
@@ -91,16 +91,22 @@ def generate_letter(vacancy_id: str) -> dict:
     cover_letter = response.choices[0].message.content.strip()
 
     with get_session() as session:
-        negotiation = Negotiation(vacancy_id=vacancy_id, cover_letter=cover_letter, status="draft")
+        negotiation = Negotiation(
+            profile_id=profile.id,
+            vacancy_id=vacancy_id,
+            cover_letter=cover_letter,
+            status="draft",
+        )
         session.add(negotiation)
         session.commit()
         session.refresh(negotiation)
         negotiation_id = negotiation.id
 
-    log.info(f"Письмо сгенерировано для {vacancy_id}, negotiation_id={negotiation_id}")
+    log.info("Cover letter generated for %s, profile_id=%s", vacancy_id, profile.id)
 
     return {
         "negotiation_id": negotiation_id,
+        "profile_id": profile.id,
         "vacancy_id": vacancy_id,
         "title": vacancy.title,
         "url": vacancy.url,
@@ -109,18 +115,10 @@ def generate_letter(vacancy_id: str) -> dict:
 
 
 if __name__ == "__main__":
-    import sys, io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-    # Берём первую вакансию со статусом scored для теста
     with get_session() as s:
-        v = s.query(Vacancy).filter_by(status="scored").first()
-
+        v = s.query(Vacancy).first()
     if not v:
-        print("Нет вакансий со статусом scored")
+        print("Нет вакансий")
     else:
-        print(f"Генерирую письмо для: {v.title} ({v.vacancy_id})\n")
-        result = generate_letter(v.vacancy_id)
-        print("=== Письмо ===")
-        print(result["cover_letter"])
+        print(generate_letter(v.vacancy_id)["cover_letter"])

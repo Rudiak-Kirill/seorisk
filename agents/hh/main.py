@@ -6,14 +6,14 @@ from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config  # noqa: F401
 from collector import run as collector_run
 from database import get_session, init_db
-from models import Negotiation, SearchProfile, UserProfile, Vacancy
+from models import Negotiation, SearchProfile, UserProfile, Vacancy, VacancyMatch
 from responder import generate_letter
 from scorer import run as scorer_run
 
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     scheduler = BackgroundScheduler()
     scheduler.add_job(collector_run, "interval", hours=2, id="collector")
     scheduler.start()
-    log.info("Scheduler started — collector every 2h")
+    log.info("Scheduler started: collector every 2h")
     yield
     scheduler.shutdown()
 
@@ -43,51 +43,57 @@ def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
-# --- Вакансии ---
-
 @app.get("/api/vacancies")
-def get_vacancies(status: str = "", limit: int = 50, offset: int = 0):
+def get_vacancies(status: str = "", limit: int = 50, offset: int = 0, profile_id: int | None = None):
     with get_session() as s:
-        q = s.query(Vacancy)
+        profile_id = profile_id or _default_profile_id(s)
+        if not profile_id:
+            return {"total": 0, "items": []}
+
+        q = (
+            s.query(Vacancy, VacancyMatch)
+            .join(VacancyMatch, VacancyMatch.vacancy_id == Vacancy.vacancy_id)
+            .filter(VacancyMatch.profile_id == profile_id)
+        )
         if status:
-            q = q.filter(Vacancy.status == status)
+            q = q.filter(VacancyMatch.status == status)
         total = q.count()
-        items = q.order_by(Vacancy.score.desc().nulls_last(), Vacancy.created_at.desc()).offset(offset).limit(limit).all()
-        return {
-            "total": total,
-            "items": [_vacancy_dict(v) for v in items],
-        }
+        rows = (
+            q.order_by(VacancyMatch.score.desc().nulls_last(), VacancyMatch.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        return {"total": total, "items": [_vacancy_dict(v, m) for v, m in rows]}
 
 
 @app.post("/api/vacancies/collect")
-def trigger_collect():
+def trigger_collect(body: dict | None = None):
     try:
-        collector_run()
+        collector_run((body or {}).get("profile_id"))
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(500, str(e))
 
 
 @app.post("/api/vacancies/score")
-def trigger_score():
+def trigger_score(body: dict | None = None):
     try:
-        scorer_run()
+        scorer_run((body or {}).get("profile_id"))
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(500, str(e))
 
 
 @app.patch("/api/vacancies/{vacancy_id}/hide")
-def hide_vacancy(vacancy_id: str):
-    return _set_status(vacancy_id, "hidden")
+def hide_vacancy(vacancy_id: str, profile_id: int | None = None):
+    return _set_status(vacancy_id, "hidden", profile_id)
 
 
 @app.patch("/api/vacancies/{vacancy_id}/applied")
-def mark_applied(vacancy_id: str):
-    return _set_status(vacancy_id, "applied")
+def mark_applied(vacancy_id: str, profile_id: int | None = None):
+    return _set_status(vacancy_id, "applied", profile_id)
 
-
-# --- Отклики ---
 
 @app.post("/api/prepare")
 def prepare_letter(body: dict):
@@ -95,7 +101,7 @@ def prepare_letter(body: dict):
     if not vacancy_id:
         raise HTTPException(400, "vacancy_id required")
     try:
-        return generate_letter(vacancy_id)
+        return generate_letter(vacancy_id, body.get("profile_id"))
     except ValueError as e:
         raise HTTPException(404, str(e))
     except Exception as e:
@@ -103,14 +109,24 @@ def prepare_letter(body: dict):
 
 
 @app.get("/api/negotiations")
-def get_negotiations():
+def get_negotiations(profile_id: int | None = None):
     with get_session() as s:
-        items = s.query(Negotiation).order_by(Negotiation.created_at.desc()).all()
+        profile_id = profile_id or _default_profile_id(s)
+        if not profile_id:
+            return []
+
+        items = (
+            s.query(Negotiation)
+            .filter(Negotiation.profile_id == profile_id)
+            .order_by(Negotiation.created_at.desc())
+            .all()
+        )
         result = []
         for n in items:
             v = s.query(Vacancy).filter_by(vacancy_id=n.vacancy_id).first()
             result.append({
                 "id": n.id,
+                "profile_id": n.profile_id,
                 "vacancy_id": n.vacancy_id,
                 "title": v.title if v else n.vacancy_id,
                 "employer": v.employer if v else None,
@@ -122,20 +138,22 @@ def get_negotiations():
         return result
 
 
-# --- Настройки ---
-
 @app.get("/api/settings")
 def get_settings():
     with get_session() as s:
-        profile = s.query(UserProfile).first()
-        search_profiles = s.query(SearchProfile).all()
+        profiles = s.query(UserProfile).order_by(UserProfile.id).all()
+        search_profiles = s.query(SearchProfile).order_by(SearchProfile.id).all()
+        active = profiles[0] if profiles else None
         return {
-            "profile": _profile_dict(profile) if profile else None,
+            "profiles": [_profile_dict(p) for p in profiles],
+            "profile": _profile_dict(active) if active else None,
             "search_profiles": [_search_profile_dict(p) for p in search_profiles],
         }
 
 
 class ProfileIn(BaseModel):
+    id: int | None = None
+    name: str | None = None
     position: str
     skills: str
     experience_summary: str
@@ -147,18 +165,38 @@ class ProfileIn(BaseModel):
 @app.put("/api/settings/profile")
 def update_profile(body: ProfileIn):
     with get_session() as s:
-        profile = s.query(UserProfile).first()
+        data = body.model_dump()
+        profile_id = data.pop("id", None)
+        profile = s.get(UserProfile, profile_id) if profile_id else None
         if profile:
-            for k, v in body.model_dump().items():
+            for k, v in data.items():
                 setattr(profile, k, v)
         else:
-            profile = UserProfile(**body.model_dump())
+            profile = UserProfile(**data)
             s.add(profile)
+        s.commit()
+        s.refresh(profile)
+        return {"status": "ok", "profile": _profile_dict(profile)}
+
+
+@app.delete("/api/settings/profile/{profile_id}")
+def delete_profile(profile_id: int):
+    with get_session() as s:
+        if s.query(UserProfile).count() <= 1:
+            raise HTTPException(400, "Нельзя удалить последнее резюме")
+        profile = s.get(UserProfile, profile_id)
+        if not profile:
+            raise HTTPException(404, "Резюме не найдено")
+        s.query(SearchProfile).filter_by(profile_id=profile_id).delete()
+        s.query(VacancyMatch).filter_by(profile_id=profile_id).delete()
+        s.query(Negotiation).filter_by(profile_id=profile_id).delete()
+        s.delete(profile)
         s.commit()
     return {"status": "ok"}
 
 
 class SearchProfileIn(BaseModel):
+    profile_id: int | None = None
     keywords: str
     area: int = 1
 
@@ -166,7 +204,11 @@ class SearchProfileIn(BaseModel):
 @app.post("/api/settings/search-profiles")
 def add_search_profile(body: SearchProfileIn):
     with get_session() as s:
-        s.add(SearchProfile(**body.model_dump()))
+        data = body.model_dump()
+        data["profile_id"] = data["profile_id"] or _default_profile_id(s)
+        if not data["profile_id"]:
+            raise HTTPException(400, "Сначала добавьте резюме")
+        s.add(SearchProfile(**data))
         s.commit()
     return {"status": "ok"}
 
@@ -176,13 +218,11 @@ def delete_search_profile(profile_id: int):
     with get_session() as s:
         p = s.get(SearchProfile, profile_id)
         if not p:
-            raise HTTPException(404, "Профиль не найден")
+            raise HTTPException(404, "Профиль поиска не найден")
         s.delete(p)
         s.commit()
     return {"status": "ok"}
 
-
-# --- PDF импорт ---
 
 @app.post("/api/settings/profile/import-pdf")
 async def import_pdf(file: UploadFile):
@@ -208,7 +248,8 @@ async def import_pdf(file: UploadFile):
                 "role": "system",
                 "content": (
                     "Извлеки данные из резюме и верни JSON без markdown:\n"
-                    '{"position":"...","skills":"skill1, skill2, ...","experience_summary":"2-3 предложения","salary_expected":null}'
+                    '{"name":"...","position":"...","skills":"skill1, skill2",'
+                    '"experience_summary":"2-3 предложения","salary_expected":null}'
                 ),
             },
             {"role": "user", "content": text[:4000]},
@@ -217,6 +258,7 @@ async def import_pdf(file: UploadFile):
     raw = response.choices[0].message.content.strip()
     try:
         import re
+
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         data = json.loads(match.group() if match else raw)
     except Exception:
@@ -225,21 +267,25 @@ async def import_pdf(file: UploadFile):
     return {"status": "ok", "profile": data}
 
 
-# --- Helpers ---
+def _default_profile_id(session) -> int | None:
+    return session.query(UserProfile.id).order_by(UserProfile.id).scalar()
 
-def _set_status(vacancy_id: str, status: str):
+
+def _set_status(vacancy_id: str, status: str, profile_id: int | None = None):
     with get_session() as s:
-        v = s.query(Vacancy).filter_by(vacancy_id=vacancy_id).first()
-        if not v:
-            raise HTTPException(404, "Вакансия не найдена")
-        v.status = status
+        profile_id = profile_id or _default_profile_id(s)
+        match = s.query(VacancyMatch).filter_by(profile_id=profile_id, vacancy_id=vacancy_id).first()
+        if not match:
+            raise HTTPException(404, "Вакансия не найдена для выбранного резюме")
+        match.status = status
         s.commit()
     return {"status": "ok"}
 
 
-def _vacancy_dict(v: Vacancy) -> dict:
+def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None) -> dict:
     return {
         "id": v.id,
+        "profile_id": match.profile_id if match else None,
         "vacancy_id": v.vacancy_id,
         "url": v.url,
         "title": v.title,
@@ -248,16 +294,41 @@ def _vacancy_dict(v: Vacancy) -> dict:
         "experience": v.experience,
         "employment": v.employment,
         "key_skills": json.loads(v.key_skills) if v.key_skills else [],
-        "score": v.score,
-        "score_reason": v.score_reason,
-        "status": v.status,
-        "created_at": str(v.created_at),
+        "score": match.score if match else v.score,
+        "score_reason": match.score_reason if match else v.score_reason,
+        "status": match.status if match else v.status,
+        "flags": _vacancy_flags(v),
+        "created_at": str(match.created_at if match else v.created_at),
     }
+
+
+def _vacancy_flags(v: Vacancy) -> dict:
+    salary = (v.salary_text or "").strip().lower()
+    employment = (v.employment or "").strip().lower()
+    skills = " ".join(json.loads(v.key_skills) if v.key_skills else [])
+    haystack = " ".join([
+        v.title or "",
+        v.employer or "",
+        employment,
+        v.experience or "",
+        skills,
+        v.description or "",
+    ]).lower()
+
+    has_salary = bool(salary and salary not in {"не указан", "не указана", "зп не указана"})
+    is_remote = any(token in haystack for token in ["удален", "удалён", "remote", "дистанц", "home office"])
+    is_part_time = (
+        any(token in employment for token in ["частич", "проект", "разовое задание"]) or
+        any(token in haystack for token in ["частичная занятость", "неполный день", "part-time", "part time"])
+    )
+
+    return {"has_salary": has_salary, "remote": is_remote, "part_time": is_part_time}
 
 
 def _profile_dict(p: UserProfile) -> dict:
     return {
         "id": p.id,
+        "name": p.name or p.position,
         "position": p.position,
         "skills": p.skills,
         "experience_summary": p.experience_summary,
@@ -268,4 +339,10 @@ def _profile_dict(p: UserProfile) -> dict:
 
 
 def _search_profile_dict(p: SearchProfile) -> dict:
-    return {"id": p.id, "keywords": p.keywords, "area": p.area, "active": p.active}
+    return {
+        "id": p.id,
+        "profile_id": p.profile_id,
+        "keywords": p.keywords,
+        "area": p.area,
+        "active": p.active,
+    }
