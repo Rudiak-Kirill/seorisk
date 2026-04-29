@@ -34,5 +34,6 @@ RESUME_ID=...
 ## Ссылки
 
 - [Агенты](./agents.md)
+- [Интеграции](./integrations.md)
 - [Схема БД](./database.md)
 - [API-контракт](./api.md)
