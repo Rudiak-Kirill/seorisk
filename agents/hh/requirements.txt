@@ -5,4 +5,4 @@ python-dotenv==1.1.0
 apscheduler==3.11.0
 fastapi==0.115.12
 uvicorn==0.34.2
-anthropic==0.51.0
+openai==1.78.0
