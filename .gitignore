@@ -22,6 +22,9 @@
 # agents
 agents/**/output/
 agents/**/.env
+agents/**/*.db
+agents/**/__pycache__/
+agents/**/*.pyc
 *.pem
 
 # debug
