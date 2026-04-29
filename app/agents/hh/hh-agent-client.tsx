@@ -37,6 +37,7 @@ type Vacancy = {
   title: string;
   employer: string | null;
   salary_text: string | null;
+  description: string | null;
   experience: string | null;
   employment: string | null;
   key_skills: string[];
@@ -486,6 +487,8 @@ function Flag({ label, active, warn }: { label: string; active: boolean; warn?: 
 }
 
 function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => void; onHide: (id: string) => void }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   if (!props.items.length) return <Empty text="Нет вакансий по выбранным фильтрам" />;
 
   return (
@@ -505,34 +508,53 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
           </tr>
         </thead>
         <tbody>
-          {props.items.map((item) => (
-            <tr key={item.vacancy_id} className="border-t border-gray-100 align-top">
-              <td className="max-w-xs px-3 py-3">
-                <a className="font-medium text-gray-900 hover:text-orange-600" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
-                <div className="mt-1 text-xs text-gray-500">{item.employer}</div>
-                {item.score_reason ? <div className="mt-2 text-xs italic text-gray-500">{item.score_reason}</div> : null}
-              </td>
-              <td className="px-3 py-3">{item.salary_text || 'не указана'}</td>
-              <td className="space-x-1 px-3 py-3">
-                <Flag label="₽" active={item.flags.has_salary} />
-                <Flag label="R" active={item.flags.remote} />
-                <Flag label="½" active={item.flags.part_time} warn />
-              </td>
-              <td className="px-3 py-3">{item.employment || '-'}</td>
-              <td className="px-3 py-3">{item.experience || '-'}</td>
-              <td className="max-w-xs px-3 py-3 text-xs text-gray-600">{item.key_skills.slice(0, 8).join(', ') || '-'}</td>
-              <td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-xs font-medium ${scoreClass(item.score)}`}>{item.score ?? '-'}</span></td>
-              <td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-xs font-medium ${statusClass(item.status)}`}>{statusLabel(item.status)}</span></td>
-              <td className="whitespace-nowrap px-3 py-3 text-right">
-                {item.status !== 'hidden' && item.status !== 'applied' ? (
-                  <div className="flex justify-end gap-2">
-                    <button onClick={() => props.onLetter(item.vacancy_id)} className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-800">Письмо</button>
-                    <button onClick={() => props.onHide(item.vacancy_id)} className="rounded-md bg-red-50 px-2 py-1 text-xs text-red-700">Скрыть</button>
+          {props.items.map((item) => {
+            const expanded = expandedId === item.vacancy_id;
+            return (
+              <tr key={item.vacancy_id} className="border-t border-gray-100 align-top">
+                <td className="max-w-xs px-3 py-3">
+                  <a className="font-medium text-gray-900 hover:text-orange-600" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+                  <div className="mt-1 text-xs text-gray-500">{item.employer}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <a className="text-xs font-medium text-orange-600 hover:text-orange-700" href={item.url} target="_blank" rel="noreferrer">Открыть на HH</a>
+                    {item.description ? (
+                      <button
+                        onClick={() => setExpandedId(expanded ? null : item.vacancy_id)}
+                        className="text-xs font-medium text-gray-600 hover:text-gray-900"
+                      >
+                        {expanded ? 'Скрыть описание' : 'Показать описание'}
+                      </button>
+                    ) : null}
                   </div>
-                ) : null}
-              </td>
-            </tr>
-          ))}
+                  {item.score_reason ? <div className="mt-2 text-xs italic text-gray-500">{item.score_reason}</div> : null}
+                  {expanded && item.description ? (
+                    <div className="mt-3 max-h-80 overflow-y-auto whitespace-pre-line rounded-md bg-gray-50 p-3 text-xs leading-5 text-gray-700">
+                      {item.description}
+                    </div>
+                  ) : null}
+                </td>
+                <td className="px-3 py-3">{item.salary_text || 'не указана'}</td>
+                <td className="space-x-1 px-3 py-3">
+                  <Flag label="₽" active={item.flags.has_salary} />
+                  <Flag label="R" active={item.flags.remote} />
+                  <Flag label="½" active={item.flags.part_time} warn />
+                </td>
+                <td className="px-3 py-3">{item.employment || '-'}</td>
+                <td className="px-3 py-3">{item.experience || '-'}</td>
+                <td className="max-w-xs px-3 py-3 text-xs text-gray-600">{item.key_skills.slice(0, 8).join(', ') || '-'}</td>
+                <td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-xs font-medium ${scoreClass(item.score)}`}>{item.score ?? '-'}</span></td>
+                <td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-xs font-medium ${statusClass(item.status)}`}>{statusLabel(item.status)}</span></td>
+                <td className="whitespace-nowrap px-3 py-3 text-right">
+                  {item.status !== 'hidden' && item.status !== 'applied' ? (
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => props.onLetter(item.vacancy_id)} className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-800">Письмо</button>
+                      <button onClick={() => props.onHide(item.vacancy_id)} className="rounded-md bg-red-50 px-2 py-1 text-xs text-red-700">Скрыть</button>
+                    </div>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

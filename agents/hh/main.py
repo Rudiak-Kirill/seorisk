@@ -291,6 +291,7 @@ def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None) -> dict:
         "title": v.title,
         "employer": v.employer,
         "salary_text": v.salary_text,
+        "description": v.description,
         "experience": v.experience,
         "employment": v.employment,
         "key_skills": json.loads(v.key_skills) if v.key_skills else [],
