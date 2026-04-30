@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -289,43 +290,93 @@ def import_text_resume(body: RawResumeIn):
     from openai import OpenAI
 
     text = body.text.strip()
-
     if len(text) < 200:
         raise HTTPException(400, "Передайте полный текст резюме")
 
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        max_tokens=1400,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Извлеки данные из сырого текста резюме HH и верни JSON без markdown. "
-                    "Не выдумывай факты, отсутствующие поля возвращай пустой строкой или null. "
-                    "Поля: "
-                    '{"name":"","position":"","skills":"","experience_summary":"","salary_expected":null,'
-                    '"contact_phone":"","contact_email":"","location":"","citizenship":"",'
-                    '"work_format":"","employment_type":"","travel_readiness":"","education":"",'
-                    '"courses":"","languages":"","about":"","stop_words":""}. '
-                    "experience_summary сделай сжатым, но содержательным: ключевые места работы, роли, результаты и стек. "
-                    "skills верни строкой через точку с запятой. salary_expected верни числом в рублях без пробелов."
-                ),
-            },
-            {"role": "user", "content": text[:12000]},
-        ],
-    )
-    raw = response.choices[0].message.content.strip()
     try:
-        import re
-
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            max_tokens=1400,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Extract fields from a raw HH.ru resume text and return strict JSON without markdown. "
+                        "Do not invent facts. Return empty string or null for missing fields. "
+                        "Schema: "
+                        '{"name":"","position":"","skills":"","experience_summary":"","salary_expected":null,'
+                        '"contact_phone":"","contact_email":"","location":"","citizenship":"",'
+                        '"work_format":"","employment_type":"","travel_readiness":"","education":"",'
+                        '"courses":"","languages":"","about":"","stop_words":""}. '
+                        "experience_summary must be concise but meaningful: key jobs, roles, results, stack. "
+                        "skills must be a semicolon-separated string. salary_expected must be a number in RUB."
+                    ),
+                },
+                {"role": "user", "content": text[:12000]},
+            ],
+        )
+        raw = response.choices[0].message.content.strip()
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         data = json.loads(match.group() if match else raw)
-    except Exception:
-        raise HTTPException(500, f"Не удалось распарсить ответ: {raw[:200]}")
+    except Exception as e:
+        log.warning("LLM resume import failed, using local parser: %s", e)
+        data = _parse_resume_text(text)
 
     return {"status": "ok", "profile": data}
 
+
+def _parse_resume_text(text: str) -> dict:
+    def first(pattern: str) -> str:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        return " ".join(match.group(1).split()) if match else ""
+
+    def section(start: str, stops: list[str]) -> str:
+        pattern = re.escape(start) + r"\s*(.*?)(?:" + "|".join(re.escape(s) for s in stops) + r"|\Z)"
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+        return " ".join(match.group(1).split()) if match else ""
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    name = ""
+    for line in lines[:8]:
+        if not line.lower().startswith("резюме обновлено") and not re.search(r"\d|@|\+", line):
+            name = line
+            break
+
+    position = first(r"Желаемая должность и зарплата\s+(.+?)(?:\n\s*\d|\n\s*[\d\s]+\s*₽|\n\s*Специализации:)")
+    if not position:
+        position = first(r"^\s*([A-Za-zА-Яа-яЁё /&\-]+(?:SEO|Python|Lead|Developer|Manager)[^\n]*)")
+
+    salary_raw = first(r"([\d\s]{5,})\s*₽")
+    salary_expected = int(re.sub(r"\D", "", salary_raw)) if salary_raw else None
+
+    skills = section("Навыки", ["Опыт вождения", "Дополнительная информация", "Обо мне"])
+    skills = re.sub(r"^Знание языков\s*Русский\s+—\s+Родной\s*Навыки\s*", "", skills).strip()
+
+    about = section("Обо мне", ["Рекомендации", "Ключевые навыки"])
+    experience = section("Опыт работы", ["Образование", "Повышение квалификации", "Навыки"])
+    education = section("Образование", ["Повышение квалификации", "Навыки", "Опыт вождения"])
+    courses = section("Повышение квалификации, курсы", ["Навыки", "Опыт вождения", "Дополнительная информация"])
+
+    return {
+        "name": name,
+        "position": position,
+        "skills": skills,
+        "experience_summary": experience[:4000],
+        "salary_expected": salary_expected,
+        "contact_phone": first(r"(\+\d[\d\s()\-]+)"),
+        "contact_email": first(r"([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})"),
+        "location": first(r"Проживает:\s*(.+)"),
+        "citizenship": first(r"Гражданство:\s*(.+)"),
+        "work_format": first(r"Формат работы:\s*(.+)") or ("удалённо" if re.search(r"готов работать удал[её]нно", text, re.I) else ""),
+        "employment_type": first(r"Тип занятости:\s*(.+)"),
+        "travel_readiness": first(r"(Готов работать.+?командировкам)"),
+        "education": education,
+        "courses": courses,
+        "languages": first(r"Знание языков\s*(.+?)(?:Навыки|Опыт вождения|$)"),
+        "about": about,
+        "stop_words": "",
+    }
 
 def _default_profile_id(session) -> int | None:
     return session.query(UserProfile.id).order_by(UserProfile.id).scalar()
