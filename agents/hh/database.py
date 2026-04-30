@@ -22,6 +22,21 @@ def migrate_db() -> None:
         columns = _columns(conn, "user_profile")
         if "name" not in columns:
             conn.execute(text("ALTER TABLE user_profile ADD COLUMN name TEXT"))
+        for column in [
+            "contact_phone",
+            "contact_email",
+            "location",
+            "citizenship",
+            "work_format",
+            "employment_type",
+            "travel_readiness",
+            "education",
+            "courses",
+            "languages",
+            "about",
+        ]:
+            if column not in columns:
+                conn.execute(text(f"ALTER TABLE user_profile ADD COLUMN {column} TEXT"))
 
         columns = _columns(conn, "search_profiles")
         if "profile_id" not in columns:

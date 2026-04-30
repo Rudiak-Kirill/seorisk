@@ -205,6 +205,17 @@ class ProfileIn(BaseModel):
     salary_expected: int | None = None
     stop_words: str | None = None
     cover_letter_tone: str = "formal"
+    contact_phone: str | None = None
+    contact_email: str | None = None
+    location: str | None = None
+    citizenship: str | None = None
+    work_format: str | None = None
+    employment_type: str | None = None
+    travel_readiness: str | None = None
+    education: str | None = None
+    courses: str | None = None
+    languages: str | None = None
+    about: str | None = None
 
 
 @app.put("/api/settings/profile")
@@ -405,6 +416,17 @@ def _profile_dict(p: UserProfile) -> dict:
         "salary_expected": p.salary_expected,
         "stop_words": p.stop_words,
         "cover_letter_tone": p.cover_letter_tone,
+        "contact_phone": p.contact_phone,
+        "contact_email": p.contact_email,
+        "location": p.location,
+        "citizenship": p.citizenship,
+        "work_format": p.work_format,
+        "employment_type": p.employment_type,
+        "travel_readiness": p.travel_readiness,
+        "education": p.education,
+        "courses": p.courses,
+        "languages": p.languages,
+        "about": p.about,
     }
 
 

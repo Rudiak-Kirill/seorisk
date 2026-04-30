@@ -20,6 +20,17 @@ type ResumeProfile = {
   salary_expected: number | null;
   stop_words: string | null;
   cover_letter_tone: string;
+  contact_phone: string | null;
+  contact_email: string | null;
+  location: string | null;
+  citizenship: string | null;
+  work_format: string | null;
+  employment_type: string | null;
+  travel_readiness: string | null;
+  education: string | null;
+  courses: string | null;
+  languages: string | null;
+  about: string | null;
 };
 
 type SearchProfile = {
@@ -70,6 +81,17 @@ const emptyForm = {
   salary_expected: '',
   stop_words: '',
   cover_letter_tone: 'formal',
+  contact_phone: '',
+  contact_email: '',
+  location: '',
+  citizenship: '',
+  work_format: 'удалённо',
+  employment_type: 'полная занятость, частичная занятость, проектная работа/разовое задание',
+  travel_readiness: '',
+  education: '',
+  courses: '',
+  languages: '',
+  about: '',
 };
 
 type ProfileForm = typeof emptyForm;
@@ -180,6 +202,17 @@ export default function HhAgentClient() {
         salary_expected: activeProfile.salary_expected ? String(activeProfile.salary_expected) : '',
         stop_words: activeProfile.stop_words || '',
         cover_letter_tone: activeProfile.cover_letter_tone || 'formal',
+        contact_phone: activeProfile.contact_phone || '',
+        contact_email: activeProfile.contact_email || '',
+        location: activeProfile.location || '',
+        citizenship: activeProfile.citizenship || '',
+        work_format: activeProfile.work_format || '',
+        employment_type: activeProfile.employment_type || '',
+        travel_readiness: activeProfile.travel_readiness || '',
+        education: activeProfile.education || '',
+        courses: activeProfile.courses || '',
+        languages: activeProfile.languages || '',
+        about: activeProfile.about || '',
       });
     } else {
       setForm(emptyForm);
@@ -605,6 +638,8 @@ function ProfileFormView(props: { form: ProfileForm; setForm: (form: ProfileForm
   const { form, setForm } = props;
   const update = (key: keyof ProfileForm, value: string) => setForm({ ...form, [key]: value });
 
+  return <ResumeProfileFields form={form} update={update} onSave={props.onSave} />;
+
   return (
     <div className="grid gap-3">
       <Field label="Название резюме" value={form.name} onChange={(value) => update('name', value)} />
@@ -636,5 +671,66 @@ function Field(props: { label: string; value: string; onChange: (value: string) 
       <span className="mb-1 block text-gray-600">{props.label}</span>
       <input type={props.type || 'text'} value={props.value} onChange={(event) => props.onChange(event.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
     </label>
+  );
+}
+
+function ResumeProfileFields(props: {
+  form: ProfileForm;
+  update: (key: keyof ProfileForm, value: string) => void;
+  onSave: () => void;
+}) {
+  const { form, update } = props;
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Название резюме" value={form.name} onChange={(value) => update('name', value)} />
+        <Field label="Желаемая должность" value={form.position} onChange={(value) => update('position', value)} />
+        <Field label="Телефон" value={form.contact_phone} onChange={(value) => update('contact_phone', value)} />
+        <Field label="Email" value={form.contact_email} onChange={(value) => update('contact_email', value)} type="email" />
+        <Field label="Город" value={form.location} onChange={(value) => update('location', value)} />
+        <Field label="Гражданство / разрешение" value={form.citizenship} onChange={(value) => update('citizenship', value)} />
+        <Field label="Формат работы" value={form.work_format} onChange={(value) => update('work_format', value)} />
+        <Field label="Тип занятости" value={form.employment_type} onChange={(value) => update('employment_type', value)} />
+        <Field label="Готовность к командировкам" value={form.travel_readiness} onChange={(value) => update('travel_readiness', value)} />
+        <Field label="Ожидаемая ЗП" value={form.salary_expected} onChange={(value) => update('salary_expected', value)} type="number" />
+      </div>
+
+      <Field label="Навыки" value={form.skills} onChange={(value) => update('skills', value)} />
+
+      <label className="block text-sm">
+        <span className="mb-1 block text-gray-600">Опыт и достижения</span>
+        <textarea value={form.experience_summary} onChange={(event) => update('experience_summary', event.target.value)} className="min-h-40 w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+      </label>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="mb-1 block text-gray-600">Тон письма</span>
+          <select value={form.cover_letter_tone} onChange={(event) => update('cover_letter_tone', event.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+            <option value="formal">Деловой</option>
+            <option value="friendly">Дружелюбный</option>
+          </select>
+        </label>
+        <Field label="Языки" value={form.languages} onChange={(value) => update('languages', value)} />
+      </div>
+
+      <label className="block text-sm">
+        <span className="mb-1 block text-gray-600">Образование</span>
+        <textarea value={form.education} onChange={(event) => update('education', event.target.value)} className="min-h-20 w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+      </label>
+
+      <label className="block text-sm">
+        <span className="mb-1 block text-gray-600">Курсы</span>
+        <textarea value={form.courses} onChange={(event) => update('courses', event.target.value)} className="min-h-20 w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+      </label>
+
+      <label className="block text-sm">
+        <span className="mb-1 block text-gray-600">Обо мне</span>
+        <textarea value={form.about} onChange={(event) => update('about', event.target.value)} className="min-h-32 w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+      </label>
+
+      <Field label="Стоп-слова" value={form.stop_words} onChange={(value) => update('stop_words', value)} />
+      <button onClick={props.onSave} className="mt-2 rounded-md bg-gray-900 px-4 py-2 text-sm text-white">Сохранить резюме</button>
+    </div>
   );
 }

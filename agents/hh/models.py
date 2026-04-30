@@ -29,6 +29,17 @@ class UserProfile(Base):
     salary_expected: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stop_words: Mapped[str | None] = mapped_column(Text, nullable=True)
     cover_letter_tone: Mapped[str] = mapped_column(Text, default="formal")
+    contact_phone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location: Mapped[str | None] = mapped_column(Text, nullable=True)
+    citizenship: Mapped[str | None] = mapped_column(Text, nullable=True)
+    work_format: Mapped[str | None] = mapped_column(Text, nullable=True)
+    employment_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    travel_readiness: Mapped[str | None] = mapped_column(Text, nullable=True)
+    education: Mapped[str | None] = mapped_column(Text, nullable=True)
+    courses: Mapped[str | None] = mapped_column(Text, nullable=True)
+    languages: Mapped[str | None] = mapped_column(Text, nullable=True)
+    about: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Vacancy(Base):

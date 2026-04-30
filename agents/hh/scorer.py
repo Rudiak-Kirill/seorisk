@@ -64,6 +64,21 @@ def build_vacancy_text(vacancy: Vacancy) -> str:
     return "\n".join(lines)
 
 
+def enrich_profile_text(profile: UserProfile, profile_text: str) -> str:
+    lines = [profile_text]
+    if profile.work_format:
+        lines.append(f"Формат работы: {profile.work_format}")
+    if profile.employment_type:
+        lines.append(f"Тип занятости: {profile.employment_type}")
+    if profile.location:
+        lines.append(f"Локация: {profile.location}")
+    if profile.travel_readiness:
+        lines.append(f"Командировки: {profile.travel_readiness}")
+    if profile.about:
+        lines.append(f"О кандидате: {profile.about}")
+    return "\n".join(lines)
+
+
 def score_vacancy(client: OpenAI, vacancy: Vacancy, profile_text: str) -> tuple[int, str]:
     response = client.chat.completions.create(
         model=MODEL,
@@ -104,7 +119,7 @@ def run(profile_id: int | None = None) -> None:
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     for profile in profiles:
-        profile_text = build_profile_text(profile)
+        profile_text = enrich_profile_text(profile, build_profile_text(profile))
 
         with get_session() as session:
             matches = (

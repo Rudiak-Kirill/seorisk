@@ -63,6 +63,19 @@ def build_vacancy_prompt(vacancy: Vacancy) -> str:
     return "\n".join(lines)
 
 
+def enrich_profile_text(profile: UserProfile, profile_text: str) -> str:
+    lines = [profile_text]
+    if profile.work_format:
+        lines.append(f"Формат работы: {profile.work_format}")
+    if profile.employment_type:
+        lines.append(f"Тип занятости: {profile.employment_type}")
+    if profile.location:
+        lines.append(f"Локация: {profile.location}")
+    if profile.about:
+        lines.append(f"О кандидате: {profile.about}")
+    return "\n".join(lines)
+
+
 def generate_letter(vacancy_id: str, profile_id: int | None = None) -> dict:
     with get_session() as session:
         vacancy = session.query(Vacancy).filter_by(vacancy_id=vacancy_id).first()
@@ -77,7 +90,7 @@ def generate_letter(vacancy_id: str, profile_id: int | None = None) -> dict:
         raise ValueError("Профиль соискателя не заполнен")
 
     tone_desc = TONES.get(profile.cover_letter_tone, TONES["formal"])
-    profile_text = build_profile_text(profile)
+    profile_text = enrich_profile_text(profile, build_profile_text(profile))
 
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
