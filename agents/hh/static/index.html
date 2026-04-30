@@ -148,9 +148,10 @@
       <button class="btn btn-danger" onclick="deleteActiveProfile()">Удалить резюме</button>
     </div>
 
-    <div class="import-area" onclick="document.getElementById('pdf-input').click()">
-      <input type="file" id="pdf-input" accept=".pdf" onchange="importPdf(this)">
-      Загрузить резюме (PDF) — данные заполнятся автоматически
+    <div class="import-area">
+      <label for="raw-resume" style="display:block;margin-bottom:8px;color:#333">Сырое резюме HH</label>
+      <textarea id="raw-resume" rows="8" placeholder="Вставьте полный текст резюме из HH" style="width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:6px;padding:10px"></textarea>
+      <button class="btn btn-primary" style="margin-top:10px" onclick="importRawResume()">Распарсить резюме</button>
     </div>
 
     <div class="form-grid" style="margin-top:16px">
@@ -546,14 +547,16 @@ async function deleteSearchProfile(id) {
   loadSettings();
 }
 
-async function importPdf(input) {
+async function importRawResume() {
   const base = window.location.pathname.startsWith('/agents/hh') ? '/agents/hh' : '';
-  const file = input.files[0];
-  if (!file) return;
+  const text = $('raw-resume').value.trim();
+  if (!text) return;
   toast('Читаю резюме...');
-  const form = new FormData();
-  form.append('file', file);
-  const r = await fetch(`${base}/api/settings/profile/import-pdf`, { method: 'POST', body: form });
+  const r = await fetch(`${base}/api/settings/profile/import-text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
   const data = await r.json();
   if (data.profile) {
     const p = data.profile;
@@ -563,6 +566,8 @@ async function importPdf(input) {
     if (p.experience_summary) $('p-experience').value = p.experience_summary;
     if (p.salary_expected) $('p-salary').value = p.salary_expected;
     toast('Данные из резюме загружены — проверь и сохрани');
+  } else {
+    toast(data.detail || 'Не удалось распарсить резюме');
   }
 }
 
