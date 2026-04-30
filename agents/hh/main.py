@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -257,6 +257,10 @@ class SearchProfileIn(BaseModel):
     area: int = 1
 
 
+class RawResumeIn(BaseModel):
+    text: str
+
+
 @app.post("/api/settings/search-profiles")
 def add_search_profile(body: SearchProfileIn):
     with get_session() as s:
@@ -280,35 +284,35 @@ def delete_search_profile(profile_id: int):
     return {"status": "ok"}
 
 
-@app.post("/api/settings/profile/import-pdf")
-async def import_pdf(file: UploadFile):
-    import io
-    import pdfplumber
+@app.post("/api/settings/profile/import-text")
+def import_text_resume(body: RawResumeIn):
     from openai import OpenAI
 
-    content = await file.read()
-    text = ""
-    with pdfplumber.open(io.BytesIO(content)) as pdf:
-        for page in pdf.pages:
-            text += (page.extract_text() or "") + "\n"
+    text = body.text.strip()
 
-    if not text.strip():
-        raise HTTPException(400, "Не удалось извлечь текст из PDF")
+    if len(text) < 200:
+        raise HTTPException(400, "Передайте полный текст резюме")
 
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        max_tokens=512,
+        max_tokens=1400,
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "Извлеки данные из резюме и верни JSON без markdown:\n"
-                    '{"name":"...","position":"...","skills":"skill1, skill2",'
-                    '"experience_summary":"2-3 предложения","salary_expected":null}'
+                    "Извлеки данные из сырого текста резюме HH и верни JSON без markdown. "
+                    "Не выдумывай факты, отсутствующие поля возвращай пустой строкой или null. "
+                    "Поля: "
+                    '{"name":"","position":"","skills":"","experience_summary":"","salary_expected":null,'
+                    '"contact_phone":"","contact_email":"","location":"","citizenship":"",'
+                    '"work_format":"","employment_type":"","travel_readiness":"","education":"",'
+                    '"courses":"","languages":"","about":"","stop_words":""}. '
+                    "experience_summary сделай сжатым, но содержательным: ключевые места работы, роли, результаты и стек. "
+                    "skills верни строкой через точку с запятой. salary_expected верни числом в рублях без пробелов."
                 ),
             },
-            {"role": "user", "content": text[:4000]},
+            {"role": "user", "content": text[:12000]},
         ],
     )
     raw = response.choices[0].message.content.strip()

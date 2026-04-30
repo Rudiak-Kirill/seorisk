@@ -166,6 +166,7 @@ export default function HhAgentClient() {
   const [searchArea, setSearchArea] = useState('1');
   const [letter, setLetter] = useState<{ title: string; url: string; cover_letter: string } | null>(null);
   const [jobStatus, setJobStatus] = useState<JobsResponse | null>(null);
+  const [rawResumeText, setRawResumeText] = useState('');
   const [loading, setLoading] = useState('');
   const [message, setMessage] = useState('');
 
@@ -359,14 +360,12 @@ export default function HhAgentClient() {
     await loadResponses();
   }
 
-  async function importPdf(file: File | null) {
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    const data = await run('import-pdf', () =>
-      api<{ profile: Partial<ResumeProfile> }>('/settings/profile/import-pdf', {
+  async function importRawResume() {
+    if (!rawResumeText.trim()) return;
+    const data = await run('import-text', () =>
+      api<{ profile: Partial<ResumeProfile> }>('/settings/profile/import-text', {
         method: 'POST',
-        body: formData,
+        body: JSON.stringify({ text: rawResumeText }),
       })
     );
     setForm((current) => ({
@@ -376,7 +375,20 @@ export default function HhAgentClient() {
       skills: data.profile.skills || current.skills,
       experience_summary: data.profile.experience_summary || current.experience_summary,
       salary_expected: data.profile.salary_expected ? String(data.profile.salary_expected) : current.salary_expected,
+      stop_words: data.profile.stop_words || current.stop_words,
+      contact_phone: data.profile.contact_phone || current.contact_phone,
+      contact_email: data.profile.contact_email || current.contact_email,
+      location: data.profile.location || current.location,
+      citizenship: data.profile.citizenship || current.citizenship,
+      work_format: data.profile.work_format || current.work_format,
+      employment_type: data.profile.employment_type || current.employment_type,
+      travel_readiness: data.profile.travel_readiness || current.travel_readiness,
+      education: data.profile.education || current.education,
+      courses: data.profile.courses || current.courses,
+      languages: data.profile.languages || current.languages,
+      about: data.profile.about || current.about,
     }));
+    setMessage('Резюме распарсено, проверьте поля и сохраните');
   }
 
   const isBusy = Boolean(loading);
@@ -487,10 +499,24 @@ export default function HhAgentClient() {
                 Удалить
               </button>
             </div>
-            <label className="mb-3 block rounded-md border border-dashed border-gray-300 p-4 text-sm text-gray-500">
-              Импорт PDF
-              <input className="mt-2 block text-sm" type="file" accept=".pdf" onChange={(event) => importPdf(event.target.files?.[0] || null)} />
-            </label>
+            <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-4">
+              <label className="block text-sm">
+                <span className="mb-2 block font-medium text-gray-900">Сырое резюме HH</span>
+                <textarea
+                  value={rawResumeText}
+                  onChange={(event) => setRawResumeText(event.target.value)}
+                  className="min-h-40 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+                  placeholder="Вставьте полный текст резюме из HH"
+                />
+              </label>
+              <button
+                onClick={importRawResume}
+                disabled={!rawResumeText.trim() || loading === 'import-text'}
+                className="mt-3 rounded-md bg-gray-900 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+              >
+                Распарсить резюме
+              </button>
+            </div>
             <ProfileFormView form={form} setForm={setForm} onSave={saveProfile} />
           </div>
           <div className="rounded-md border border-gray-200 bg-white p-4">
