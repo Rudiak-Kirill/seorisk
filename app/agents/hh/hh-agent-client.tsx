@@ -54,6 +54,14 @@ type SettingsResponse = {
   search_profiles: SearchProfile[];
 };
 
+type JobsResponse = {
+  collector: {
+    enabled: boolean;
+    interval_hours: number;
+    next_run_at: string | null;
+  };
+};
+
 const emptyForm = {
   name: '',
   position: '',
@@ -108,6 +116,18 @@ function scoreClass(score: number | null) {
   return 'bg-red-50 text-red-700';
 }
 
+function formatNextRun(value: string | null) {
+  if (!value) return 'не запланирован';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'не запланирован';
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function HhAgentClient() {
   const [tab, setTab] = useState<'vacancies' | 'responses' | 'settings'>('vacancies');
   const [profiles, setProfiles] = useState<ResumeProfile[]>([]);
@@ -123,6 +143,7 @@ export default function HhAgentClient() {
   const [searchKeywords, setSearchKeywords] = useState('');
   const [searchArea, setSearchArea] = useState('1');
   const [letter, setLetter] = useState<{ title: string; url: string; cover_letter: string } | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobsResponse | null>(null);
   const [loading, setLoading] = useState('');
   const [message, setMessage] = useState('');
 
@@ -146,6 +167,7 @@ export default function HhAgentClient() {
 
   useEffect(() => {
     loadSettings();
+    loadJobStatus();
   }, []);
 
   useEffect(() => {
@@ -209,6 +231,15 @@ export default function HhAgentClient() {
     setResponses(data || []);
   }
 
+  async function loadJobStatus() {
+    try {
+      const data = await api<JobsResponse>('/jobs');
+      setJobStatus(data);
+    } catch {
+      setJobStatus(null);
+    }
+  }
+
   async function saveProfile() {
     const saved = await run('save-profile', () =>
       api<{ profile: ResumeProfile }>('/settings/profile', {
@@ -262,6 +293,7 @@ export default function HhAgentClient() {
       })
     );
     await loadVacancies();
+    await loadJobStatus();
   }
 
   async function scoreVacancies() {
@@ -376,6 +408,11 @@ export default function HhAgentClient() {
             <button onClick={scoreVacancies} className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-800 hover:bg-gray-200">
               Скоринг
             </button>
+            {jobStatus?.collector ? (
+              <span className="text-sm text-gray-500">
+                Автосбор: каждые {jobStatus.collector.interval_hours} ч, следующий {formatNextRun(jobStatus.collector.next_run_at)}
+              </span>
+            ) : null}
             <span className="ml-auto text-sm text-gray-500">{filteredVacancies.length} из {vacancies.length}</span>
           </div>
           <VacanciesTable items={filteredVacancies} onLetter={prepareLetter} onHide={hideVacancy} />

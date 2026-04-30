@@ -23,15 +23,46 @@ log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+def _collect_interval_hours() -> float:
+    raw = os.getenv("HH_COLLECT_INTERVAL_HOURS", "2")
+    try:
+        interval = float(raw.replace(",", "."))
+    except ValueError:
+        log.warning("Invalid HH_COLLECT_INTERVAL_HOURS=%r, using 2h", raw)
+        return 2
+    return max(interval, 0)
+
+
+def _create_scheduler() -> BackgroundScheduler | None:
+    interval_hours = _collect_interval_hours()
+    if interval_hours <= 0:
+        log.info("Scheduler disabled: HH_COLLECT_INTERVAL_HOURS=%s", interval_hours)
+        return None
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        collector_run,
+        "interval",
+        hours=interval_hours,
+        id="collector",
+        coalesce=True,
+        max_instances=1,
+        replace_existing=True,
+    )
+    log.info("Scheduler configured: collector every %sh", interval_hours)
+    return scheduler
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(collector_run, "interval", hours=2, id="collector")
-    scheduler.start()
-    log.info("Scheduler started: collector every 2h")
+    scheduler = _create_scheduler()
+    app.state.scheduler = scheduler
+    if scheduler:
+        scheduler.start()
     yield
-    scheduler.shutdown()
+    if scheduler:
+        scheduler.shutdown()
 
 
 app = FastAPI(title="HH Agent", lifespan=lifespan)
@@ -74,6 +105,20 @@ def trigger_collect(body: dict | None = None):
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.get("/api/jobs")
+def get_jobs():
+    scheduler = getattr(app.state, "scheduler", None)
+    collector = scheduler.get_job("collector") if scheduler else None
+    interval_hours = _collect_interval_hours()
+    return {
+        "collector": {
+            "enabled": bool(collector),
+            "interval_hours": interval_hours,
+            "next_run_at": collector.next_run_time.isoformat() if collector and collector.next_run_time else None,
+        }
+    }
 
 
 @app.post("/api/vacancies/score")
