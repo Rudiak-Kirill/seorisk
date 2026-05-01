@@ -44,6 +44,9 @@ type SearchProfile = {
 type Vacancy = {
   vacancy_id: string;
   profile_id: number | null;
+  resume_name: string | null;
+  search_profile_id: number | null;
+  search_keywords: string | null;
   url: string;
   title: string;
   employer: string | null;
@@ -52,6 +55,8 @@ type Vacancy = {
   experience: string | null;
   employment: string | null;
   work_format: string | null;
+  pub_date: string | null;
+  applicants_count: number | null;
   key_skills: string[];
   score: number | null;
   score_reason: string | null;
@@ -147,6 +152,17 @@ function formatNextRun(value: string | null) {
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+  });
+}
+
+function formatVacancyDate(value: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
   });
 }
 
@@ -590,11 +606,15 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
 
   return (
     <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
-      <table className="min-w-[1080px] w-full border-collapse text-sm">
+      <table className="min-w-[1380px] w-full border-collapse text-sm">
         <thead className="bg-gray-50 text-left text-xs font-semibold uppercase text-gray-500">
           <tr>
             <th className="px-3 py-3">Вакансия</th>
+            <th className="px-3 py-3">Резюме</th>
+            <th className="px-3 py-3">Ключ</th>
+            <th className="px-3 py-3">Дата</th>
             <th className="px-3 py-3">ЗП</th>
+            <th className="px-3 py-3">Отклики</th>
             <th className="px-3 py-3">Флаги</th>
             <th className="px-3 py-3">Формат работы</th>
             <th className="px-3 py-3">Занятость</th>
@@ -631,7 +651,11 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
                     </div>
                   ) : null}
                 </td>
+                <td className="max-w-[160px] px-3 py-3 text-xs text-gray-600">{item.resume_name || '-'}</td>
+                <td className="max-w-[160px] px-3 py-3 text-xs text-gray-600">{item.search_keywords || '-'}</td>
+                <td className="whitespace-nowrap px-3 py-3">{formatVacancyDate(item.pub_date)}</td>
                 <td className="px-3 py-3">{item.salary_text || 'не указана'}</td>
+                <td className="px-3 py-3">{item.applicants_count ?? '-'}</td>
                 <td className="space-x-1 px-3 py-3">
                   <Flag label="₽" active={item.flags.has_salary} />
                   <Flag label="R" active={item.flags.remote} />

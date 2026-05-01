@@ -81,6 +81,7 @@ def get_vacancies(status: str = "", limit: int = 50, offset: int = 0, profile_id
         profile_id = profile_id or _default_profile_id(s)
         if not profile_id:
             return {"total": 0, "items": []}
+        profile = s.get(UserProfile, profile_id)
 
         q = (
             s.query(Vacancy, VacancyMatch)
@@ -96,7 +97,7 @@ def get_vacancies(status: str = "", limit: int = 50, offset: int = 0, profile_id
             .limit(limit)
             .all()
         )
-        return {"total": total, "items": [_vacancy_dict(v, m) for v, m in rows]}
+        return {"total": total, "items": [_vacancy_dict(v, m, profile) for v, m in rows]}
 
 
 @app.post("/api/vacancies/collect")
@@ -469,11 +470,14 @@ def _set_status(vacancy_id: str, status: str, profile_id: int | None = None):
     return {"status": "ok"}
 
 
-def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None) -> dict:
+def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None, profile: UserProfile | None = None) -> dict:
     work_format = _work_format(v)
     return {
         "id": v.id,
         "profile_id": match.profile_id if match else None,
+        "resume_name": (profile.name or profile.position) if profile else None,
+        "search_profile_id": match.search_profile_id if match else None,
+        "search_keywords": match.search_keywords if match else None,
         "vacancy_id": v.vacancy_id,
         "url": v.url,
         "title": v.title,
@@ -483,6 +487,8 @@ def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None) -> dict:
         "experience": v.experience,
         "employment": v.employment,
         "work_format": work_format,
+        "pub_date": v.pub_date,
+        "applicants_count": v.applicants_count,
         "key_skills": json.loads(v.key_skills) if v.key_skills else [],
         "score": match.score if match else v.score,
         "score_reason": match.score_reason if match else v.score_reason,

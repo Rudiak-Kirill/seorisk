@@ -67,17 +67,42 @@ def parse_vacancy_page(vacancy_id: str) -> dict:
     experience_match = re.search(r"опыт[:\s]+([^.]+)", meta_desc, re.I)
     employment_match = re.search(r"занятость[:\s]+([^.]+)", meta_desc, re.I)
 
+    applicants_count = _parse_applicants_count(soup.get_text(" ", strip=True))
+
     return {
         "employer": employer,
         "description": description,
         "key_skills": json.dumps(skills, ensure_ascii=False) if skills else None,
         "experience": experience_match.group(1).strip() if experience_match else None,
         "employment": employment_match.group(1).strip() if employment_match else None,
+        "applicants_count": applicants_count,
     }
+
+
+def _parse_applicants_count(text: str) -> int | None:
+    patterns = [
+        r"(\d[\d\s]*)\s+человек[а]?\s+уже\s+откликнул",
+        r"уже\s+откликнул[ио]сь\s+(\d[\d\s]*)",
+        r"(\d[\d\s]*)\s+отклик",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return int(re.sub(r"\D", "", match.group(1)))
+    return None
 
 
 def already_seen(session, vacancy_ids: list[str]) -> set[str]:
     rows = session.query(Vacancy.vacancy_id).filter(Vacancy.vacancy_id.in_(vacancy_ids)).all()
+    return {r.vacancy_id for r in rows}
+
+
+def missing_applicants_count(session, vacancy_ids: list[str]) -> set[str]:
+    rows = (
+        session.query(Vacancy.vacancy_id)
+        .filter(Vacancy.vacancy_id.in_(vacancy_ids), Vacancy.applicants_count.is_(None))
+        .all()
+    )
     return {r.vacancy_id for r in rows}
 
 
@@ -134,6 +159,7 @@ def run(profile_id: int | None = None) -> None:
 
         with get_session() as session:
             seen = already_seen(session, vacancy_ids)
+            missing_applicants = missing_applicants_count(session, vacancy_ids)
 
         new_items = [item for item in rss_items if item["vacancy_id"] not in seen]
         log.info("  New global vacancies: %s", len(new_items))
@@ -159,13 +185,33 @@ def run(profile_id: int | None = None) -> None:
 
                 log.info("  + %s '%s'", vid, item["title"])
                 total_new += 1
+            elif vid in missing_applicants:
+                try:
+                    detail = parse_vacancy_page(vid)
+                    time.sleep(REQUEST_DELAY)
+                except Exception as e:
+                    log.warning("  Applicants count refresh skipped %s: %s", vid, e)
+                else:
+                    with get_session() as session:
+                        vacancy = session.query(Vacancy).filter_by(vacancy_id=vid).first()
+                        if vacancy and detail.get("applicants_count") is not None:
+                            vacancy.applicants_count = detail["applicants_count"]
+                            session.commit()
 
             with get_session() as session:
                 stmt = insert(VacancyMatch).values(
                     profile_id=owner_profile_id,
                     vacancy_id=vid,
+                    search_profile_id=profile.id,
+                    search_keywords=profile.keywords,
                     status="new",
-                ).on_conflict_do_nothing(index_elements=["profile_id", "vacancy_id"])
+                ).on_conflict_do_update(
+                    index_elements=["profile_id", "vacancy_id"],
+                    set_={
+                        "search_profile_id": profile.id,
+                        "search_keywords": profile.keywords,
+                    },
+                )
                 session.execute(stmt)
                 session.commit()
 

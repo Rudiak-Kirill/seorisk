@@ -46,6 +46,16 @@ def migrate_db() -> None:
         if "profile_id" not in columns:
             conn.execute(text("ALTER TABLE negotiations ADD COLUMN profile_id INTEGER"))
 
+        columns = _columns(conn, "vacancies")
+        if "applicants_count" not in columns:
+            conn.execute(text("ALTER TABLE vacancies ADD COLUMN applicants_count INTEGER"))
+
+        columns = _columns(conn, "vacancy_matches")
+        if "search_profile_id" not in columns:
+            conn.execute(text("ALTER TABLE vacancy_matches ADD COLUMN search_profile_id INTEGER"))
+        if "search_keywords" not in columns:
+            conn.execute(text("ALTER TABLE vacancy_matches ADD COLUMN search_keywords TEXT"))
+
         profile_id = conn.execute(text("SELECT id FROM user_profile ORDER BY id LIMIT 1")).scalar()
         if profile_id is not None:
             conn.execute(
