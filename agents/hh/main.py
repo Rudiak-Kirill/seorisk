@@ -231,6 +231,8 @@ def update_profile(body: ProfileIn):
         else:
             profile = UserProfile(**data)
             s.add(profile)
+            s.flush()
+        _ensure_search_profiles(s, profile)
         s.commit()
         s.refresh(profile)
         return {"status": "ok", "profile": _profile_dict(profile)}
@@ -269,6 +271,17 @@ def add_search_profile(body: SearchProfileIn):
         data["profile_id"] = data["profile_id"] or _default_profile_id(s)
         if not data["profile_id"]:
             raise HTTPException(400, "Сначала добавьте резюме")
+        existing = (
+            s.query(SearchProfile)
+            .filter(
+                SearchProfile.profile_id == data["profile_id"],
+                SearchProfile.area == data["area"],
+                SearchProfile.keywords == data["keywords"],
+            )
+            .first()
+        )
+        if existing:
+            return {"status": "ok", "id": existing.id}
         s.add(SearchProfile(**data))
         s.commit()
     return {"status": "ok"}
@@ -379,7 +392,70 @@ def _parse_resume_text(text: str) -> dict:
     }
 
 def _default_profile_id(session) -> int | None:
-    return session.query(UserProfile.id).order_by(UserProfile.id).scalar()
+    return session.query(UserProfile.id).order_by(UserProfile.id).limit(1).scalar()
+
+
+def _ensure_search_profiles(session, profile: UserProfile) -> None:
+    existing = {
+        row.keywords.strip().lower()
+        for row in session.query(SearchProfile).filter_by(profile_id=profile.id).all()
+        if row.keywords
+    }
+    if existing:
+        return
+
+    for keyword in _suggest_search_keywords(profile):
+        normalized = keyword.strip()
+        if not normalized or normalized.lower() in existing:
+            continue
+        session.add(SearchProfile(profile_id=profile.id, keywords=normalized, area=1, active=True))
+        existing.add(normalized.lower())
+
+
+def _suggest_search_keywords(profile: UserProfile) -> list[str]:
+    title_source = " ".join([profile.position or "", profile.name or ""])
+    source = " ".join([title_source, profile.skills or "", profile.about or ""])
+    title_l = title_source.lower()
+    source_l = source.lower()
+    suggestions: list[str] = []
+
+    position = (profile.position or "").strip()
+    if position:
+        suggestions.append(position)
+        suggestions.extend([part.strip() for part in re.split(r"[/|,]", position) if part.strip()])
+
+    if "seo" in title_l:
+        suggestions.extend(["SEO", "Technical SEO", "SEO Lead"])
+    if "growth" in title_l:
+        suggestions.extend(["SEO Growth", "Growth Lead"])
+
+    rules = [
+        ("automation", ["AI Automation", "Automation Specialist"]),
+        ("ai", ["AI Automation", "AI Specialist"]),
+        ("agent", ["AI Agents"]),
+        ("llm", ["LLM", "AI Automation"]),
+        ("n8n", ["n8n"]),
+        ("python", ["Python", "Python Backend"]),
+        ("systems", ["Systems Specialist", "Systems Analyst"]),
+        ("crm", ["CRM", "CRM integration"]),
+        ("api", ["API integration"]),
+        ("product", ["Product Manager"]),
+    ]
+    for token, keywords in rules:
+        if token in source_l:
+            suggestions.extend(keywords)
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in suggestions:
+        item = re.sub(r"\s+", " ", item).strip()
+        if len(item) < 2 or item.lower() in seen:
+            continue
+        result.append(item)
+        seen.add(item.lower())
+        if len(result) >= 6:
+            break
+    return result
 
 
 def _set_status(vacancy_id: str, status: str, profile_id: int | None = None):

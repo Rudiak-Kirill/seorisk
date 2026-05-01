@@ -88,7 +88,7 @@ def run(profile_id: int | None = None) -> None:
         if profile_id:
             q = q.filter(SearchProfile.profile_id == profile_id)
         profiles = q.all()
-        default_profile_id = session.query(UserProfile.id).order_by(UserProfile.id).scalar()
+        default_profile_id = session.query(UserProfile.id).order_by(UserProfile.id).limit(1).scalar()
 
     if not profiles:
         log.warning("No active search profiles")
