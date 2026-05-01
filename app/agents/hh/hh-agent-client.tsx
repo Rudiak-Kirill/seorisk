@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Briefcase,
@@ -629,6 +629,7 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
           {props.items.map((item) => {
             const expanded = expandedId === item.vacancy_id;
             return (
+              <Fragment key={item.vacancy_id}>
               <tr key={item.vacancy_id} className="border-t border-gray-100 align-top">
                 <td className="max-w-xs px-3 py-3">
                   <a className="font-medium text-gray-900 hover:text-orange-600" href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
@@ -645,11 +646,6 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
                     ) : null}
                   </div>
                   {item.score_reason ? <div className="mt-2 text-xs italic text-gray-500">{item.score_reason}</div> : null}
-                  {expanded && item.description ? (
-                    <div className="mt-3 max-h-80 overflow-y-auto whitespace-pre-line rounded-md bg-gray-50 p-3 text-xs leading-5 text-gray-700">
-                      {item.description}
-                    </div>
-                  ) : null}
                 </td>
                 <td className="max-w-[160px] px-3 py-3 text-xs text-gray-600">{item.resume_name || '-'}</td>
                 <td className="max-w-[160px] px-3 py-3 text-xs text-gray-600">{item.search_keywords || '-'}</td>
@@ -676,6 +672,16 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
                   ) : null}
                 </td>
               </tr>
+              {expanded && item.description ? (
+                <tr key={`${item.vacancy_id}-description`} className="border-t border-gray-100 bg-gray-50/60">
+                  <td colSpan={14} className="px-3 py-3">
+                    <div className="max-h-96 overflow-y-auto whitespace-pre-line rounded-md border border-gray-200 bg-white p-4 text-sm leading-6 text-gray-700">
+                      {item.description}
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+              </Fragment>
             );
           })}
         </tbody>
