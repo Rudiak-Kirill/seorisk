@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 REQUEST_DELAY = 0.5
+REFRESHABLE_MATCH_STATUSES = ("new", "scored", "skipped")
 
 
 def fetch_rss(keywords: str, area: int) -> list[dict]:
@@ -80,6 +81,21 @@ def already_seen(session, vacancy_ids: list[str]) -> set[str]:
     return {r.vacancy_id for r in rows}
 
 
+def clear_refreshable_matches(profile_id: int) -> None:
+    with get_session() as session:
+        deleted = (
+            session.query(VacancyMatch)
+            .filter(
+                VacancyMatch.profile_id == profile_id,
+                VacancyMatch.status.in_(REFRESHABLE_MATCH_STATUSES),
+            )
+            .delete(synchronize_session=False)
+        )
+        session.commit()
+
+    log.info("Cleared refreshable matches for profile %s: %s", profile_id, deleted)
+
+
 def run(profile_id: int | None = None) -> None:
     init_db()
 
@@ -93,6 +109,9 @@ def run(profile_id: int | None = None) -> None:
     if not profiles:
         log.warning("No active search profiles")
         return
+
+    if profile_id:
+        clear_refreshable_matches(profile_id)
 
     total_new = 0
 
