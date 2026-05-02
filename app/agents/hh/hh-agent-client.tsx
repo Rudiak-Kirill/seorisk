@@ -60,6 +60,13 @@ type Vacancy = {
   key_skills: string[];
   score: number | null;
   score_reason: string | null;
+  score_details: {
+    components?: Record<string, number>;
+    matched_skills?: string[];
+    stop_words?: string[];
+    risks?: string[];
+    positives?: string[];
+  } | null;
   status: string;
   flags: { has_salary: boolean; remote: boolean; part_time: boolean };
 };
@@ -599,6 +606,38 @@ function Flag({ label, active, warn }: { label: string; active: boolean; warn?: 
   );
 }
 
+function ScoreDetails({ details }: { details: Vacancy['score_details'] }) {
+  if (!details?.components) return null;
+
+  const labels: Record<string, string> = {
+    skills: 'Навыки',
+    role: 'Роль',
+    salary: 'ЗП',
+    work_format: 'Формат',
+    employment: 'Занятость',
+    experience: 'Опыт',
+    stop_words_penalty: 'Стоп-слова',
+  };
+
+  return (
+    <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-3">
+      <div className="flex flex-wrap gap-2">
+        {Object.entries(details.components).map(([key, value]) => (
+          <span key={key} className="rounded-full bg-white px-2 py-1 text-xs text-gray-700">
+            {labels[key] || key}: {value}
+          </span>
+        ))}
+      </div>
+      {details.matched_skills?.length ? (
+        <div className="mt-2 text-xs text-emerald-700">Совпали навыки: {details.matched_skills.slice(0, 8).join(', ')}</div>
+      ) : null}
+      {details.risks?.length ? (
+        <div className="mt-1 text-xs text-amber-700">Риски: {details.risks.slice(0, 4).join('; ')}</div>
+      ) : null}
+    </div>
+  );
+}
+
 function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => void; onHide: (id: string) => void }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -675,6 +714,7 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
               {expanded && item.description ? (
                 <tr key={`${item.vacancy_id}-description`} className="border-t border-gray-100 bg-gray-50/60">
                   <td colSpan={14} className="px-3 py-3">
+                    <ScoreDetails details={item.score_details} />
                     <div className="max-h-96 overflow-y-auto whitespace-pre-line rounded-md border border-gray-200 bg-white p-4 text-sm leading-6 text-gray-700">
                       {item.description}
                     </div>

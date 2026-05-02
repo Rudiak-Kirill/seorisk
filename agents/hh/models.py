@@ -74,6 +74,7 @@ class VacancyMatch(Base):
     search_keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     score_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score_details: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, default="new")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

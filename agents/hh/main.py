@@ -492,6 +492,7 @@ def _vacancy_dict(v: Vacancy, match: VacancyMatch | None = None, profile: UserPr
         "key_skills": json.loads(v.key_skills) if v.key_skills else [],
         "score": match.score if match else v.score,
         "score_reason": match.score_reason if match else v.score_reason,
+        "score_details": json.loads(match.score_details) if match and match.score_details else None,
         "status": match.status if match else v.status,
         "flags": _vacancy_flags(v),
         "created_at": str(match.created_at if match else v.created_at),

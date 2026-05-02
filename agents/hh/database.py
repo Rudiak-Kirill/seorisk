@@ -55,6 +55,8 @@ def migrate_db() -> None:
             conn.execute(text("ALTER TABLE vacancy_matches ADD COLUMN search_profile_id INTEGER"))
         if "search_keywords" not in columns:
             conn.execute(text("ALTER TABLE vacancy_matches ADD COLUMN search_keywords TEXT"))
+        if "score_details" not in columns:
+            conn.execute(text("ALTER TABLE vacancy_matches ADD COLUMN score_details TEXT"))
 
         profile_id = conn.execute(text("SELECT id FROM user_profile ORDER BY id LIMIT 1")).scalar()
         if profile_id is not None:
