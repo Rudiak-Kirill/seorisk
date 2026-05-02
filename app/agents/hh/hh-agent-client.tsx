@@ -483,7 +483,7 @@ export default function HhAgentClient() {
             ) : null}
             <span className="ml-auto text-sm text-gray-500">{filteredVacancies.length} из {vacancies.length}</span>
           </div>
-          <VacanciesTable items={filteredVacancies} onLetter={prepareLetter} onHide={hideVacancy} />
+          <VacanciesTable items={filteredVacancies} onLetter={prepareLetter} onHide={hideVacancy} onApplied={markApplied} />
         </section>
       ) : null}
 
@@ -638,7 +638,7 @@ function ScoreDetails({ details }: { details: Vacancy['score_details'] }) {
   );
 }
 
-function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => void; onHide: (id: string) => void }) {
+function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => void; onHide: (id: string) => void; onApplied: (id: string) => void }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!props.items.length) return <Empty text="Нет вакансий по выбранным фильтрам" />;
@@ -706,6 +706,7 @@ function VacanciesTable(props: { items: Vacancy[]; onLetter: (id: string) => voi
                   {item.status !== 'hidden' && item.status !== 'applied' ? (
                     <div className="flex flex-col items-end gap-1">
                       <button onClick={() => props.onLetter(item.vacancy_id)} className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-800">Письмо</button>
+                      <button onClick={() => props.onApplied(item.vacancy_id)} className="rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-700">Откликнулся</button>
                       <button onClick={() => props.onHide(item.vacancy_id)} className="rounded-md bg-red-50 px-2 py-1 text-xs text-red-700">Скрыть</button>
                     </div>
                   ) : null}
